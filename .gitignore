@@ -1,0 +1,12 @@
+# Ignore folders
+Measurement Files/
+Recovered FKBP5 3PB Files/
+Scripts/
+Tibia_Analysis_By_Genotype/
+Tibia_Analysis_By_Lineage/
+Tibia_Bottom_By_Genotype/Tibia_Top_By_Genotype/
+
+# Ignore files
+*.csv
+*.xlsx
+*.docx
