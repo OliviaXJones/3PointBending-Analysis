@@ -169,36 +169,77 @@ for path in txt_files:
             else:
                 fail_idx = len(load) - 1
 
-        disp_at_failure = displacement[fail_idx]
-        load_at_failure = load[fail_idx]
-
         # --- Toe filtering & Slope Locking ---
         pre_max_disp = displacement[:max_idx]
         pre_max_load = load[:max_idx]
+
+        # Define toe mask FIRST
         toe_mask = pre_max_load >= (TOE_LOAD_FRACTION * max_load)
 
-        disp_slope_candidates = pre_max_disp[toe_mask]
+        toe_indices = np.where(toe_mask)[0]
+
+        if len(toe_indices) > 0:
+            start_idx = toe_indices[0]
+        else:
+            start_idx = 0  # fallback
+
+        # Now define adjusted displacement
+        adj_disp = displacement - displacement[start_idx]
+
+        # Shifted reference points (FOR PLOTTING)
+        adj_max_disp = adj_disp[max_idx]
+        adj_fail_disp = adj_disp[fail_idx]
+
+        # Values for reporting
+        disp_at_failure = adj_fail_disp
+        load_at_failure = load[fail_idx]
+
+        # Convert candidates into SAME coordinate system as plot
+        disp_slope_candidates = (
+            pre_max_disp[toe_mask] - displacement[start_idx])
         load_slope_candidates = pre_max_load[toe_mask]
 
-        stiffness, intercept, idx0, idx1 = dominant_linear_region(
-            disp_slope_candidates, load_slope_candidates, window=LINEAR_WINDOW_POINTS
+        # 🔒 SAFETY CHECK (ADD HERE)
+        if len(disp_slope_candidates) < LINEAR_WINDOW_POINTS:
+            print(
+                f"Skipping stiffness fit (too few points) in {os.path.basename(path)}")
+            stiffness = np.nan
+            intercept = np.nan
+            idx0, idx1 = 0, 0
+        else:
+            stiffness, intercept, idx0, idx1 = dominant_linear_region(
+                disp_slope_candidates,
+                load_slope_candidates,
+                window=LINEAR_WINDOW_POINTS
+            )
+
+        energy = np.trapezoid(
+            load[start_idx:fail_idx+1],
+            adj_disp[start_idx:fail_idx+1]
         )
-
-        energy = np.trapezoid(load[:fail_idx+1], displacement[:fail_idx+1])
-
         # Plotting
         plt.figure(figsize=(7, 5))
-        plt.plot(displacement, load, color='black', label='Data')
-        if not np.isnan(stiffness):
-            plt.plot(disp_slope_candidates[idx0:idx1],
-                     stiffness * disp_slope_candidates[idx0:idx1] + intercept,
-                     color='red', label=f'Stiffness: {stiffness:.2f} N/mm')
+        plt.plot(adj_disp, load, color='black', label='Data')
+        if (idx1 - idx0) > 5 and np.isfinite(stiffness):
+            x_lin = disp_slope_candidates[idx0:idx1]
 
-        plt.scatter(disp_at_max, max_load, color='green', label='Max Load')
-        plt.scatter(disp_at_failure, load_at_failure,
+            plt.plot(
+                x_lin,
+                stiffness * x_lin + intercept,
+                color='red',
+                label=f'Stiffness: {stiffness:.2f} N/mm'
+            )
+
+        plt.scatter(adj_max_disp, max_load, color='green', label='Max Load')
+        plt.scatter(adj_fail_disp, load_at_failure,
                     color='purple', label='Failure')
-        plt.fill_between(displacement[:fail_idx+1],
-                         load[:fail_idx+1], alpha=0.2, color='orange')
+        plt.axvline(x=0, color='blue', linestyle='--', label='Toe End (Start)')
+        plt.fill_between(
+            adj_disp[start_idx:fail_idx+1],
+            load[start_idx:fail_idx+1],
+            alpha=0.2,
+            color='orange'
+        )
         plt.title(os.path.basename(path))
         plt.legend()
         plt.savefig(os.path.join(PLOT_FOLDER, os.path.basename(
@@ -212,10 +253,10 @@ for path in txt_files:
             "Energy_to_Failure_Nmm": round(energy, 4),
             "Displacement_at_Failure_mm": round(disp_at_failure, 4)
         })
-        print(f"✅ Processed: {os.path.basename(path)}")
+        print(f"Processed: {os.path.basename(path)}")
 
     except Exception as e:
-        print(f"❌ Error {os.path.basename(path)}: {e}")
+        print(f"Error {os.path.basename(path)}: {e}")
 
 # Save results
 pd.DataFrame(results).to_excel(os.path.join(
