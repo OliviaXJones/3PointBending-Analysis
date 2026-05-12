@@ -8,12 +8,28 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import StringIO
-from datetime import datetime  # Added for date formatting
+from datetime import datetime
+from tkinter import Tk, filedialog, messagebox
 
-# ================= USER SETTINGS =================
-# This will ask you for the folder path when you run the script
-INPUT_FOLDER = input("Please paste the folder path: ").strip().replace('"', '')
+root = Tk()
+root.withdraw()
+root.attributes('-topmost', True)
 
+# 1. Show the instruction popup
+"""messagebox.showinfo("Folder Selection",
+                    "Please navigate to the folder containing 3-Point Bending Force-Displacement .txt files")"""
+
+# 2. Open the folder selection dialog
+INPUT_FOLDER = filedialog.askdirectory(
+    title="Select Force-Displacement Folder")
+
+# Cleanup the root window
+root.destroy()
+
+# Proceed only if a folder was selected
+if not INPUT_FOLDER:
+    print("No folder selected. Operation cancelled.")
+    exit()
 # Get current date in MMDDYY format
 date_str = datetime.now().strftime("%m%d%y")
 
