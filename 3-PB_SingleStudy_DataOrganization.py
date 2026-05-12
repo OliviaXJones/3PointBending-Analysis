@@ -2,6 +2,8 @@ import os
 import pandas as pd
 import openpyxl
 from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog, simpledialog
 
 # --- CONFIGURATION ---
 # Root folder for machine analysis files
@@ -19,6 +21,34 @@ GROUP_MAP = {
     "PV": "IFS + Medigel",
     "PS": "IFS + SHP Medigel"
 }
+
+
+def get_save_location():
+    """
+    Opens windows to pick the parent folder AND type the new folder name.
+    """
+    root = tk.Tk()
+    root.withdraw()  # Hide the main tkinter window
+    root.attributes('-topmost', True)  # Bring to front
+
+    # 1. Pop up for the Directory
+    parent_dir = filedialog.askdirectory(
+        title="Select where to save the results")
+
+    if not parent_dir:
+        return None
+
+    # 2. Pop up for the Folder Name
+    # This creates a small text box window so you don't have to use the terminal
+    new_folder_name = simpledialog.askstring("Folder Name",
+                                             "What should we name the new results folder?",
+                                             initialvalue="LFemur_Results")
+
+    if not new_folder_name:
+        new_folder_name = "Grouped_Analysis_Results"
+
+    full_path = os.path.join(parent_dir, new_folder_name)
+    return full_path
 
 
 def get_analysis_file(folder_path):
@@ -97,8 +127,78 @@ def sync_data_to_master():
     print("\nMaster Excel updated successfully.")
 
 
+def parse_ifs_code(code):
+    """
+    Parses IDs like 'CV1', 'PV10', 'PS5' into Group and Number.
+    """
+    try:
+        # Extract letters (Group) and numbers (ID)
+        import re
+        match = re.match(r"([A-Z]+)([0-9]+)", str(code).strip())
+        if match:
+            prefix = match.group(1)
+            num = match.group(2)
+            group_name = GROUP_MAP.get(prefix, "Unknown")
+            return group_name, prefix, num
+    except:
+        pass
+    return "Unknown", "Unknown", "Unknown"
+
+
+def export_final_tables(master_path):
+    """
+    Reads the updated Master Excel and exports Pivot Tables to a user-defined folder.
+    """
+    # 1. Ask user where to save and what to name it
+    output_folder = get_save_location()
+    if not output_folder:
+        output_folder = os.path.join(os.path.dirname(
+            master_path), "Grouped_Analysis_Tables")
+
+    print(f"Generating grouped analysis tables in: {output_folder}")
+    df = pd.read_excel(master_path)
+
+    # Parse IDs
+    df[['Group', 'Prefix', 'ID_Num']] = df.iloc[:, 0].apply(
+        lambda x: pd.Series(parse_ifs_code(x)))
+
+    metrics = {
+        'AvgLength (mm)': 'Avg_Length',
+        'AvgDiam (mm)': 'Avg_Diameter',
+        'AvgThick (mm)': 'Avg_Thickness',
+        'Max Load (N)': 'Max_Load',
+        'Stiffness (N/mm)': 'Stiffness',
+        'Energy to Failure (N*mm)': 'Energy_to_Failure',
+        'Displacement at Failure (mm)': 'Displacement_at_Failure'
+    }
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    for header, clean_name in metrics.items():
+        if header in df.columns:
+            table = df.pivot_table(
+                index='ID_Num', columns='Group', values=header)
+            order = [GROUP_MAP[k]
+                     for k in ["CV", "PV", "PS"] if GROUP_MAP[k] in table.columns]
+            table = table.reindex(columns=order)
+
+            file_name = f"{clean_name}.csv"
+            table.to_csv(os.path.join(output_folder, file_name))
+            print(f"  - Exported: {file_name}")
+
+
 if __name__ == "__main__":
     try:
+        # 1. Sync data from measurements and machine files to Master
         sync_data_to_master()
+
+        # 2. Export the grouped tables with User Input for location/name
+        export_final_tables(master_file)
+
+        # 3. Final Master CSV
+        final_df = pd.read_excel(master_file)
+        final_df.to_csv(output_file, index=False)
+
+        print("\nWorkflow Complete!")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"\nAn error occurred: {e}")
