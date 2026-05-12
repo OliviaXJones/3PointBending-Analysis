@@ -57,9 +57,9 @@ def sync_data_to_master():
         m_row = df_meas[df_meas.iloc[:, 0] == mouse_id]
         if not m_row.empty:
             # Adjust column numbers (2, 3, 4) to match your Master's layout
-            ws.cell(row=row, column=2).value = m_row.iloc[0, 1]  # Length
-            ws.cell(row=row, column=3).value = m_row.iloc[0, 2]  # Diameter
-            ws.cell(row=row, column=4).value = m_row.iloc[0, 3]  # Thickness
+            ws.cell(row=row, column=1).value = m_row.iloc[0, 1]  # Length
+            ws.cell(row=row, column=8).value = m_row.iloc[0, 2]  # Diameter
+            ws.cell(row=row, column=12).value = m_row.iloc[0, 3]  # Thickness
 
         # --- Part B: Pull from Force-Displacement Analysis ---
         if mouse_id in file_map:
