@@ -65,13 +65,13 @@ def sync_data_to_master():
         if mouse_id in file_map:
             df_mach = pd.read_excel(file_map[mouse_id])
             # Adjust column numbers to where you want these in your Master Excel
-            ws.cell(row=row, column=5).value = df_mach['Max_Load_N'].iloc[0]
+            ws.cell(row=row, column=4).value = df_mach['Max_Load_N'].iloc[0]
             ws.cell(
-                row=row, column=6).value = df_mach['Stiffness_N_per_mm'].iloc[0]
+                row=row, column=5).value = df_mach['Stiffness_N_per_mm'].iloc[0]
             ws.cell(
-                row=row, column=7).value = df_mach['Energy_to_Failure_Nmm'].iloc[0]
+                row=row, column=6).value = df_mach['Energy_to_Failure_Nmm'].iloc[0]
             ws.cell(
-                row=row, column=8).value = df_mach['Displacement_at_Failure_mm'].iloc[0]
+                row=row, column=7).value = df_mach['Displacement_at_Failure_mm'].iloc[0]
             print(f"Synced: {mouse_id}")
         else:
             print(f"Warning: No analysis file found for {mouse_id}")
