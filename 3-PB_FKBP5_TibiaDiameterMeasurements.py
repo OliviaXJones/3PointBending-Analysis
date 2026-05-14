@@ -1,9 +1,6 @@
 import pandas as pd
 import os
 
-input_path = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\FKBP5Null_Tibia+Femur_11226.xlsx"
-output_directory = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending"
-
 
 def process_tibia_with_grouping(input_file, base_dir):
     xl = pd.ExcelFile(input_file)
@@ -100,5 +97,8 @@ def process_tibia_with_grouping(input_file, base_dir):
 
     print("Success! CSV files organized by Age and Sex are ready.")
 
+
+input_path = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\FKBP5Null_Tibia+Femur_11226.xlsx"
+output_directory = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending"
 
 process_tibia_with_grouping(input_path, output_directory)
