@@ -1,19 +1,19 @@
-import pandas as pd
-import openpyxl
-import numpy as np
-import matplotlib.pyplot as plt
-import glob
-import tkinter as tk
-from datetime import datetime
-from io import StringIO
 import os
 import sys
+import glob
+from io import StringIO
+from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
-from tkinter import ttk
-import matplotlib
-matplotlib.use("Agg")
 
+import numpy as np
+import pandas as pd
+import openpyxl
+import matplotlib
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+matplotlib.use("Agg")
 
 # ===========================================================
 # DEFAULT CONFIGURATION & CONSTANTS
@@ -30,35 +30,10 @@ TOE_LOAD_FRACTION = 0.05
 LINEAR_WINDOW_POINTS = 90
 MIN_R2 = 0.995
 
-# Global dictionary to remember manual user selections during a run so you aren't asked 100 times
-AMBIGUOUS_FOLDER_CACHE = {}
 
 # ===========================================================
 # PART 1: BENDING DATA ANALYZER FUNCTIONS
 # ===========================================================
-
-
-def get_raw_data_root(config_value=None):
-    # If the config has a value, use it directly
-    if config_value and config_value.strip():
-        return config_value.strip()
-
-    # Otherwise, completely bypass the folder name fallback and ask the user
-    print("\n[!] Warning: raw_data_root is missing or blank in the configuration.")
-    print("    Because this tool typically analyzes one bone at a time, explicit labeling is required.")
-
-    try:
-        while True:
-            user_input = input(
-                "Please enter the bone identifier being analyzed (e.g., Femur, Tibia): ").strip()
-            if user_input:
-                return user_input
-            print("Input cannot be blank. Please try again.")
-
-    except (KeyboardInterrupt, EOFError):
-        print("\nExecution cancelled by user.")
-        sys.exit(1)
-
 
 def read_bending_txt(filepath):
     with open(filepath, "r", errors="ignore") as f:
@@ -136,46 +111,7 @@ def dominant_linear_region(x, y, window=30, min_r2=0.995):
     return best
 
 
-def ask_bone_type(folder_name):
-    """Asks the user to clarify if a folder contains Tibia or Femur data."""
-    if folder_name in AMBIGUOUS_FOLDER_CACHE:
-        return AMBIGUOUS_FOLDER_CACHE[folder_name]
-
-    win = tk.Toplevel()
-    win.title("Clarify Bone Type")
-    win.geometry("400x150")
-    win.resizable(False, False)
-    win.grab_set()  # Modal window
-
-    choice = tk.StringVar(value="Tibia")
-
-    tk.Label(win, text=f"The folder/file name pattern is ambiguous:\n'{folder_name}'", font=(
-        "Arial", 10, "bold")).pack(pady=10)
-    tk.Label(win, text="Is this dataset for Tibia or Femur?").pack()
-
-    frame = tk.Frame(win)
-    frame.pack(pady=10)
-
-    tk.Radiobutton(frame, text="Tibia", variable=choice,
-                   value="Tibia").pack(side="left", padx=20)
-    tk.Radiobutton(frame, text="Femur", variable=choice,
-                   value="Femur").pack(side="left", padx=20)
-
-    def confirm():
-        win.destroy()
-
-    tk.Button(win, text="Confirm Selection", command=confirm,
-              bg="#1976D2", fg="white").pack(pady=5)
-
-    win.wait_window()
-
-    bone_selection = choice.get()
-    AMBIGUOUS_FOLDER_CACHE[folder_name] = bone_selection
-    return bone_selection
-
-
-def determine_bone_type(folder_path):
-    """Inspects parent folder paths and internal files to flag Tibia or Femur."""
+def determine_bone_type(folder_path, fallback_bone):
     folder_name_lower = os.path.basename(folder_path).lower()
 
     if "femur" in folder_name_lower:
@@ -183,7 +119,6 @@ def determine_bone_type(folder_path):
     if "tibia" in folder_name_lower:
         return "Tibia"
 
-    # Check internal file strings if the parent folder was unhelpful
     txt_files = glob.glob(os.path.join(folder_path, FILE_GLOB_PATTERN))
     for f in txt_files:
         if "femur" in os.path.basename(f).lower():
@@ -191,12 +126,10 @@ def determine_bone_type(folder_path):
         if "tibia" in os.path.basename(f).lower():
             return "Tibia"
 
-    # Fallback to UI question
-    return ask_bone_type(os.path.basename(folder_path))
+    return fallback_bone
 
 
 def run_batch_bending_analysis(input_folder):
-    """Analyzes raw force-displacement curves and auto-detects bone structures."""
     print(f"\n--- Processing Raw Data in Folder: {input_folder} ---")
     date_str = datetime.now().strftime("%m%d%y")
 
@@ -361,13 +294,12 @@ def run_batch_bending_analysis(input_folder):
     print(f"Saved local summary sheet to: {output_excel_path}")
     return output_excel_path
 
+
 # ===========================================================
 # PART 2: MASTER MERGING & EXPORT FUNCTIONS
 # ===========================================================
 
-
-def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_target):
-    """Syncs calculations specifically to Tibia or Femur structures."""
+def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_target, fallback_bone):
     df_meas_all = pd.read_excel(measurement_file, sheet_name=None)
     wb = openpyxl.load_workbook(master_file)
     folder_to_file_map = {}
@@ -379,8 +311,7 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
             return datetime.min
 
     for file_path in all_analysis_files:
-        # Match only files that belong to this specific bone target
-        detected_type = determine_bone_type(file_path.parent)
+        detected_type = determine_bone_type(file_path.parent, fallback_bone)
         if detected_type != bone_target:
             continue
 
@@ -416,7 +347,6 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                     m_row = df_meas[df_meas.iloc[:, 0].astype(
                         str).str.strip() == mouse_code]
                     if not m_row.empty:
-                        # Map geometry columns (dynamic labels account for bone geometry)
                         ws.cell(row=row, column=start_col +
                                 1).value = m_row.iloc[0, 1]
                         ws.cell(row=row, column=start_col +
@@ -454,13 +384,11 @@ def parse_mouse_code(code):
 
 
 def generate_grouped_tables(df, base_dir, bone_target):
-    """Generates pivot tables and routes them to structured folders based on bone targets."""
     metrics = [
         f'Avg. {bone_target} Length', f'Avg. {bone_target} Diameter', f'Avg. {bone_target} Thickness',
         'Maximum Load', 'Stiffness', 'Energy to Failure', 'Displacement at Failure'
     ]
 
-    # Fallback checking mechanism in case headers don't strictly contain the specific bone string
     fallback_metrics = [
         'Avg. Tibia Length', 'Avg. Tibia Diameter', 'Avg. Tibia Thickness',
         'Avg. Femur Length', 'Avg. Femur Diameter', 'Avg. Femur Thickness',
@@ -494,7 +422,6 @@ def generate_grouped_tables(df, base_dir, bone_target):
 
                 clean_metric = metric.replace("_", " ").replace(".", "")
 
-                # SET 1: Analysis By Genotype
                 gen_subset = base_subset[base_subset['Progeny_Group'].isin(
                     sort_priority)].copy()
                 if not gen_subset.empty:
@@ -508,7 +435,6 @@ def generate_grouped_tables(df, base_dir, bone_target):
                     table_genotype.to_csv(os.path.join(
                         folder_genotype, name_genotype))
 
-                # SET 2: Analysis By Lineage
                 table_lineage = base_subset.pivot_table(
                     index='ID_Num', columns='Progeny_Group', values=metric)
 
@@ -530,7 +456,6 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
     excel_data = pd.ExcelFile(master_path)
     all_compiled_data = []
 
-    # Dynamically match headers
     headers = ['Mouse Code', f'Avg. {bone_target} Length', f'Avg. {bone_target} Diameter', f'Avg. {bone_target} Thickness',
                'Maximum Load', 'Stiffness', 'Energy to Failure', 'Displacement at Failure']
 
@@ -542,9 +467,7 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
             raw_df = pd.read_excel(
                 master_path, sheet_name=sheet, header=None, skiprows=1)
 
-            # Verify sizing boundaries before clipping columns
             if raw_df.shape[1] < 17:
-                # Handle single table formats safely if dimensions aren't split
                 males = raw_df.iloc[:, 0:8].copy()
                 males.columns = headers[:males.shape[1]]
                 sheet_combined = males
@@ -568,22 +491,133 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
         return pd.DataFrame()
 
     final_master_df = pd.concat(all_compiled_data, ignore_index=True)
-
     final_master_df[['Genotype', 'Age_Extracted', 'Sex_Extracted', 'ID_Num']] = \
         final_master_df['Mouse Code'].apply(
             lambda x: pd.Series(parse_mouse_code(x)))
 
     generate_grouped_tables(final_master_df, csv_out_dir, bone_target)
-
     return final_master_df
 
 
-def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, csv_out_dir, structure_type):
-    """Executes processing across mixed deep directory topologies sorting Tibias and Femurs dynamically."""
+# ===========================================================
+# PART 3: NEW ANATOMICAL DIAMETER PARSING LAYER
+# ===========================================================
+
+def parse_anatomical_diameters(measurement_file, base_output_dir):
+    """
+    Parses structural measurement logs for both Femur and Tibia.
+    Calculates top/bottom diameter matrices and exports structured CSV files.
+    """
+    print(
+        f"\n--- Extracting Structural Diameters from: {measurement_file} ---")
+    if not os.path.exists(measurement_file):
+        print(f"Warning: Measurement file not located for diameter calculations.")
+        return
+
+    try:
+        xl = pd.ExcelFile(measurement_file)
+        sort_priority = ['Wildtype', 'Mutant', 'Heterozygous']
+
+        for bone_type in ["Femur", "Tibia"]:
+            if bone_type == "Femur":
+                label_top, label_bottom = "Anteroposterior_Femur", "Mediolateral_Femur"
+            else:
+                label_top, label_bottom = "Proximal_Tibia", "Distal_Tibia"
+
+            all_data = []
+
+            for sheet in xl.sheet_names:
+                df = pd.read_excel(measurement_file, sheet_name=sheet)
+                if df.empty:
+                    continue
+
+                for index, row in df.iterrows():
+                    raw_code = str(row.iloc[0]).strip()
+                    if not raw_code or raw_code.lower() == 'nan':
+                        continue
+
+                    if bone_type == "Femur" and "_Femur" not in raw_code:
+                        continue
+                    if bone_type == "Tibia" and "_Femur" in raw_code:
+                        continue
+
+                    clean_code = raw_code.split('_')[0]
+                    parts = clean_code.split('.')
+                    if len(parts) < 3:
+                        continue
+
+                    age_val, sex_id = parts[1], parts[2]
+                    sex_full = 'Male' if sex_id.startswith('M') else 'Female'
+                    id_num = sex_id[1:]
+
+                    try:
+                        group_ce = row.iloc[2:5].astype(float)
+                        group_fh = row.iloc[5:8].astype(float)
+                        avg_ce, avg_fh = group_ce.mean(), group_fh.mean()
+                    except (ValueError, TypeError):
+                        continue
+
+                    if pd.isna(avg_ce) or pd.isna(avg_fh):
+                        continue
+
+                    all_data.append({
+                        'ID_Num': id_num,
+                        'Age_Extracted': age_val,
+                        'Sex_Extracted': sex_full,
+                        'Progeny_Group': sheet,
+                        'Top_Val': max(avg_ce, avg_fh),
+                        'Bottom_Val': min(avg_ce, avg_fh)
+                    })
+
+            if not all_data:
+                continue
+
+            master_df = pd.DataFrame(all_data)
+            folder_top = os.path.join(base_output_dir, label_top)
+            folder_bottom = os.path.join(base_output_dir, label_bottom)
+
+            os.makedirs(folder_top, exist_ok=True)
+            os.makedirs(folder_bottom, exist_ok=True)
+
+            mapping = [('Top_Val', folder_top, label_top),
+                       ('Bottom_Val', folder_bottom, label_bottom)]
+
+            for data_key, target_folder, file_label in mapping:
+                for age in master_df['Age_Extracted'].unique():
+                    for sex in ['Male', 'Female']:
+                        subset = master_df[(master_df['Sex_Extracted'] == sex) &
+                                           (master_df['Age_Extracted'] == age)].copy()
+                        if subset.empty:
+                            continue
+
+                        table = subset.pivot_table(
+                            index='ID_Num', columns='Progeny_Group', values=data_key)
+
+                        def lineage_sort(col_name):
+                            for i, gen in enumerate(sort_priority):
+                                if col_name.startswith(gen):
+                                    return (i, col_name)
+                            return (99, col_name)
+
+                        sorted_cols = sorted(table.columns, key=lineage_sort)
+                        table = table[sorted_cols]
+                        file_name = f"{sex}_{age}Wks_{file_label}.csv"
+                        table.to_csv(os.path.join(target_folder, file_name))
+
+        print("Anatomical diameter matrices generated and exported.")
+    except Exception as e:
+        print(f"Error encountered during anatomical diameter parsing: {e}")
+
+
+# ===========================================================
+# PART 4: SYSTEM EXECUTION CONTROL PIPELINE
+# ===========================================================
+
+def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, csv_out_dir, structure_type, fallback_bone):
     root_path = Path(data_folder)
-    global AMBIGUOUS_FOLDER_CACHE
-    # Reset manual prompt memory cache for new pipeline runs
-    AMBIGUOUS_FOLDER_CACHE.clear()
+
+    # Trigger structural measurement parser layer
+    parse_anatomical_diameters(measurement_path, csv_out_dir)
 
     subfolders_with_data = set()
     for txt_file in root_path.rglob(FILE_GLOB_PATTERN):
@@ -591,37 +625,32 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
 
     if not subfolders_with_data:
         print(f"Warning: No valid .txt files found under {data_folder}")
-        return False
+        return True  # Return true if diameter parsing ran successfully anyway
 
-    # Group files dynamically into sorting queues based on bone categorization maps
     bone_groups = {"Tibia": [], "Femur": []}
 
     for folder in subfolders_with_data:
-        # Determine bone configuration type for each structural subfolder
-        assigned_bone = determine_bone_type(folder)
+        assigned_bone = determine_bone_type(folder, fallback_bone)
         bone_groups[assigned_bone].append(folder)
         run_batch_bending_analysis(str(folder))
 
     all_analysis_files = list(root_path.rglob(
         "Fz_Displacement_Analysis_*.xlsx"))
-
     if not all_analysis_files:
-        return False
+        return True
 
-    # Execute synchronization and deep statistical group compilations separately per track
     for bone_key, master_dest in [("Tibia", tibia_master), ("Femur", femur_master)]:
         if not bone_groups[bone_key]:
-            continue  # Skip tracks that contain no target files in this run
+            continue
 
         print(
             f"\n>>> Running Core Pipeline Processing Layer for: {bone_key} <<<")
         sync_data_to_master(all_analysis_files, master_dest,
-                            measurement_path, bone_key)
+                            measurement_path, bone_key, fallback_bone)
 
         try:
             compiled_clean = process_all_sheets(
                 master_dest, structure_type, csv_out_dir, bone_key)
-
             if not compiled_clean.empty:
                 date_str = datetime.now().strftime("%m%d%y")
                 csv_name = f"Compiled_{bone_key}_Bending_Data_{date_str}.csv"
@@ -636,15 +665,15 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
 
     return True
 
-# ===========================================================
-# PART 3: RECONFIGURED USER INTERFACE
-# ===========================================================
 
+# ===========================================================
+# PART 5: RECONFIGURED USER INTERFACE
+# ===========================================================
 
 def launch_public_interface():
     root = tk.Tk()
     root.title("Biomechanical Bending Analysis Pipeline")
-    root.geometry("700x460")
+    root.geometry("700x500")
     root.resizable(False, False)
 
     path_raw = tk.StringVar(value=DEFAULT_RAW_DATA_ROOT)
@@ -653,8 +682,8 @@ def launch_public_interface():
     path_meas = tk.StringVar(value=DEFAULT_MEASUREMENT_FILE)
     path_csv = tk.StringVar(value=DEFAULT_CSV_OUTPUT_DIR)
     structure_option = tk.StringVar(value="Single Table")
+    fallback_bone_option = tk.StringVar(value="Tibia")
 
-    # Browse actions
     def browse_raw():
         f = filedialog.askdirectory(title="Choose Raw Data Root")
         if f:
@@ -694,15 +723,20 @@ def launch_public_interface():
                 femur_master=path_femur_master.get(),
                 measurement_path=path_meas.get(),
                 csv_out_dir=path_csv.get(),
-                structure_type=structure_option.get()
+                structure_type=structure_option.get(),
+                fallback_bone=fallback_bone_option.get()
             )
 
             if success:
                 messagebox.showinfo(
-                    "Success", "All nested folders analyzed, sorted by bone type, master files synchronized, and flat .csv matrices compiled successfully!")
+                    "Success",
+                    "All calculations finalized! Mechanical logs unified and anatomical tracking subfolders generated smoothly."
+                )
             else:
                 messagebox.showwarning(
-                    "No Data Found", "Pipeline executed, but no raw data target files were successfully isolated.")
+                    "No Data Found",
+                    "Pipeline executed, but target data operations could not be fully initialized."
+                )
         except Exception as e:
             messagebox.showerror(
                 "Execution Crash", f"Fatal error tracked down in pipeline context:\n{e}")
@@ -732,13 +766,22 @@ def launch_public_interface():
     add_ui_row("CSV Export Folder:", path_csv, browse_csv)
 
     layout_row = tk.Frame(fields_frame)
-    layout_row.pack(fill="x", pady=10)
+    layout_row.pack(fill="x", pady=5)
     tk.Label(layout_row, text="Spreadsheet Architecture:",
              width=24, anchor="w").pack(side="left")
     options = ["Single Table", "Split Genders (Male/Female)"]
     dropdown = ttk.Combobox(layout_row, textvariable=structure_option,
                             values=options, state="readonly", width=28)
     dropdown.pack(side="left", padx=5)
+
+    fallback_row = tk.Frame(fields_frame)
+    fallback_row.pack(fill="x", pady=5)
+    tk.Label(fallback_row, text="Default Bone Fallback:",
+             width=24, anchor="w").pack(side="left")
+    bone_options = ["Tibia", "Femur"]
+    fallback_dropdown = ttk.Combobox(
+        fallback_row, textvariable=fallback_bone_option, values=bone_options, state="readonly", width=28)
+    fallback_dropdown.pack(side="left", padx=5)
 
     tk.Button(root, text="Run Engineering Pipeline", bg="#2E7D32", fg="white", font=(
         "Arial", 11, "bold"), padx=30, pady=8, command=run_pipeline).pack(pady=15)
