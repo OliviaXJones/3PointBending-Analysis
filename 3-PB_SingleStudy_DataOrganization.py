@@ -4,6 +4,7 @@ import openpyxl
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, simpledialog
+import json
 
 # --- CONFIGURATION ---
 # Root folder for machine analysis files
@@ -21,6 +22,30 @@ GROUP_MAP = {
     "PV": "IFS + Medigel",
     "PS": "IFS + SHP Medigel"
 }
+
+
+def load_config():
+    with open("studies_config.json", "r") as f:
+        return json.load(f)
+
+
+def select_study():
+    config = load_config()
+    root = tk.Tk()
+    root.withdraw()
+
+    # Simple list of study names
+    study_list = list(config.keys())
+
+    # You could upgrade this to a dropdown, but for now,
+    # this lets them pick from a list via a simple input
+    choice = simpledialog.askstring("Select Study",
+                                    f"Which study are you running?\nOptions: {', '.join(study_list)}")
+
+    if choice not in config:
+        raise ValueError("Study name not found in config file!")
+
+    return config[choice], choice
 
 
 def get_save_location():
@@ -189,16 +214,20 @@ def export_final_tables(master_path):
 
 if __name__ == "__main__":
     try:
-        # 1. Sync data from measurements and machine files to Master
-        sync_data_to_master()
+        # Load settings for the selected study
+        current_study_settings, study_name = select_study()
 
-        # 2. Export the grouped tables with User Input for location/name
+        # Inject these settings into your global variables
+        raw_data_root = current_study_settings["raw_data_root"]
+        master_file = current_study_settings["master_file"]
+        measurement_file = current_study_settings["measurement_file"]
+        GROUP_MAP = current_study_settings["group_map"]
+
+        # Now run your existing functions
+        sync_data_to_master()
         export_final_tables(master_file)
 
-        # 3. Final Master CSV
-        final_df = pd.read_excel(master_file)
-        final_df.to_csv(output_file, index=False)
+        print(f"\nWorkflow for {study_name} Complete!")
 
-        print("\nWorkflow Complete!")
     except Exception as e:
         print(f"\nAn error occurred: {e}")
