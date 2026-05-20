@@ -644,7 +644,7 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
             continue
 
         print(
-            f"\n>>> Running Core Pipeline Processing Layer for: {bone_key} <<<")
+            f"\n>>> Running Processing Layer for: {bone_key} <<<")
         sync_data_to_master(all_analysis_files, master_dest,
                             measurement_path, bone_key, fallback_bone)
 
@@ -672,7 +672,7 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
 
 def launch_public_interface():
     root = tk.Tk()
-    root.title("Biomechanical Bending Analysis Pipeline")
+    root.title("3-Point Bending Analysis Pipeline")
     root.geometry("700x500")
     root.resizable(False, False)
 
@@ -713,7 +713,7 @@ def launch_public_interface():
             path_csv.set(f)
 
     def run_pipeline():
-        root.title("Processing Split Bone Pipelines... Please wait.")
+        root.title("Processing 3-Point Bending Pipeline... Please wait.")
         root.update()
 
         try:
@@ -730,7 +730,7 @@ def launch_public_interface():
             if success:
                 messagebox.showinfo(
                     "Success",
-                    "All calculations finalized! Mechanical logs unified and anatomical tracking subfolders generated smoothly."
+                    "All calculations finalized! Bone measurements unified and anatomical tracking subfolders generated smoothly."
                 )
             else:
                 messagebox.showwarning(
@@ -741,9 +741,9 @@ def launch_public_interface():
             messagebox.showerror(
                 "Execution Crash", f"Fatal error tracked down in pipeline context:\n{e}")
         finally:
-            root.title("Biomechanical Bending Analysis Pipeline")
+            root.title("3-Point Bending Analysis Pipeline")
 
-    tk.Label(root, text="Bending Analysis System Parameters",
+    tk.Label(root, text="3-Point Bending Analysis System Parameters",
              font=("Arial", 13, "bold")).pack(pady=10)
 
     fields_frame = tk.Frame(root)
@@ -757,7 +757,7 @@ def launch_public_interface():
                  width=48).pack(side="left", padx=5)
         tk.Button(row, text="Browse...", command=command).pack(side="left")
 
-    add_ui_row("Raw Data Root Folder:", path_raw, browse_raw)
+    add_ui_row("Raw .txt Data Root Folder:", path_raw, browse_raw)
     add_ui_row("Tibia Master Destination:",
                path_tibia_master, browse_tibia_master)
     add_ui_row("Femur Master Destination:",
@@ -778,12 +778,12 @@ def launch_public_interface():
     fallback_row.pack(fill="x", pady=5)
     tk.Label(fallback_row, text="Default Bone Fallback:",
              width=24, anchor="w").pack(side="left")
-    bone_options = ["Tibia", "Femur"]
+    bone_options = ["Tibia", "Femur", "Humerus"]
     fallback_dropdown = ttk.Combobox(
         fallback_row, textvariable=fallback_bone_option, values=bone_options, state="readonly", width=28)
     fallback_dropdown.pack(side="left", padx=5)
 
-    tk.Button(root, text="Run Engineering Pipeline", bg="#2E7D32", fg="white", font=(
+    tk.Button(root, text="Run Workflow", bg="#2E7D32", fg="white", font=(
         "Arial", 11, "bold"), padx=30, pady=8, command=run_pipeline).pack(pady=15)
 
     root.mainloop()
