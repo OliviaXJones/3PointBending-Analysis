@@ -1,17 +1,17 @@
-import os
-import re
 import glob
 import json
-from io import StringIO
+import os
+import re
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
-import numpy as np
-import pandas as pd
-import openpyxl
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import openpyxl
+import pandas as pd
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 matplotlib.use("Agg")
 
@@ -21,56 +21,59 @@ matplotlib.use("Agg")
 CONFIG_JSON_FILENAME = "studies_config.json"
 
 DEFAULT_FALLBACK_CONFIG = {
-    "raw_data_root": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Force-Displacement Raw Files\IFS+SHP099+Medigel_LFemur_051226",
-    "master_file": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\IFS+SHP099+Medigel_LFemurMaster.xlsx",
-    "measurement_file": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\IFS+SHP099+Medigel_LFemur_051226.xlsx",
-    "output_folder": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\IFS+SHP99+Medigel 2026",
-    "group_map": {
-        "CV": "Control + Medigel",
-        "PV": "IFS + Medigel",
-        "PS": "IFS + SHP Medigel"
+    "IFS+SHP099+Medigel 2026": {
+        "raw_data_root": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Force-Displacement Raw Files\IFS+SHP099+Medigel_LFemur_051226",
+        "master_file": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\IFS+SHP099+Medigel_LFemurMaster.xlsx",
+        "measurement_file": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\IFS+SHP099+Medigel_LFemur_051226.xlsx",
+        "output_folder": r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\IFS+SHP99+Medigel 2026",
+        "group_map": {"CV": "Control + Medigel", "PV": "IFS + Medigel", "PS": "IFS + SHP Medigel"},
     }
 }
 
+ACTIVE_STUDY_NAME = "IFS+SHP099+Medigel 2026"
+ACTIVE_GROUP_MAP = DEFAULT_FALLBACK_CONFIG["IFS+SHP099+Medigel 2026"]["group_map"]
 
-def load_study_config():
-    """Reads paths dynamically from your local config JSON if it exists."""
+
+def load_full_dictionary():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(script_dir, CONFIG_JSON_FILENAME)
     if os.path.exists(json_path):
         try:
             with open(json_path, "r") as f:
                 data = json.load(f)
-                if "IFS+SHP099+Medigel 2026" in data:
-                    return data["IFS+SHP099+Medigel 2026"]
-                return data
+                if data and isinstance(data, dict):
+                    if "raw_data_root" in data:
+                        return {"IFS+SHP099+Medigel 2026": data}
+                    return data
         except Exception as e:
-            print(f"Using default presets. State JSON notice: {e}")
+            print(f"Notice reading dictionary JSON: {e}")
     return DEFAULT_FALLBACK_CONFIG
 
 
-def save_study_config(raw_dir, master_path, meas_path, out_dir):
-    """Saves current directory selections so they are remembered next launch."""
+def save_single_study_update(study_name, raw_dir, master_path, meas_path, out_dir):
+    full_data = load_full_dictionary()
+
+    existing_map = full_data.get(study_name, {}).get(
+        "group_map") or full_data.get(study_name, {}).get("cohort_information")
+    if not existing_map:
+        existing_map = DEFAULT_FALLBACK_CONFIG["IFS+SHP099+Medigel 2026"]["group_map"]
+
+    full_data[study_name] = {
+        "raw_data_root": raw_dir,
+        "master_file": master_path,
+        "measurement_file": meas_path,
+        "output_folder": out_dir,
+        "group_map": existing_map
+    }
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(script_dir, CONFIG_JSON_FILENAME)
     try:
-        payload = {
-            "IFS+SHP099+Medigel 2026": {
-                "raw_data_root": raw_dir,
-                "master_file": master_path,
-                "measurement_file": meas_path,
-                "output_folder": out_dir,
-                "group_map": STUDY_CONFIG["group_map"]
-            }
-        }
         with open(json_path, "w") as f:
-            json.dump(payload, f, indent=4)
+            json.dump(full_data, f, indent=4)
     except Exception as e:
-        print(f"Could not automatically update state file: {e}")
+        print(f"Could not automatically save layout update: {e}")
 
-
-# Initial load of configuration parameters
-STUDY_CONFIG = load_study_config()
 
 FILE_GLOB_PATTERN = "*.txt"
 SAVE_PNG_DPI = 100
@@ -79,30 +82,23 @@ LINEAR_WINDOW_POINTS = 90
 MIN_R2 = 0.995
 
 
-# ===========================================================
-# ID PARSING UTIL (ROBUST GROUP + DIGIT EXTRACTOR)
-# ===========================================================
-
 def parse_id_and_group(text_string, group_map):
-    """
-    Looks for group prefixes followed by digits anywhere inside a piece of text.
-    Returns: (clean_prefix_string, numerical_id_string, group_name) or (None, None, None)
-    Example: 'CV12_LeftFemur.txt' -> ('CV', '12', 'Control + Medigel')
-    """
     if not text_string or pd.isna(text_string):
         return None, None, None
 
     text_string = str(text_string).strip()
     prefixes = list(group_map.keys())
 
-    # Matches prefix + optional space/dash/underscore + numeric digits
+    if not prefixes:
+        return None, None, None
+
     pattern = rf"\b({'|'.join(prefixes)})\s*[-_]?\s*(\d+)"
     match = re.search(pattern, text_string, re.IGNORECASE)
 
     if match:
         pref = match.group(1).upper()
         num_id = match.group(2)
-        group_name = group_map[pref]
+        group_name = group_map.get(pref, pref)
         return pref, num_id, group_name
 
     return None, None, None
@@ -111,6 +107,7 @@ def parse_id_and_group(text_string, group_map):
 # ===========================================================
 # PART 1: BENDING DATA ANALYZER FUNCTIONS
 # ===========================================================
+
 
 def read_bending_txt(filepath):
     with open(filepath, "r", errors="ignore") as f:
@@ -138,9 +135,8 @@ def read_bending_txt(filepath):
             data_lines = data_lines[i + 1:]
             break
 
-    df = pd.read_csv(
-        StringIO("".join(data_lines)), sep="\t", names=header, engine="python"
-    )
+    df = pd.read_csv(StringIO("".join(data_lines)),
+                     sep="\t", names=header, engine="python")
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -205,11 +201,10 @@ def run_batch_bending_analysis(input_folder, group_map):
     for path in txt_files:
         base_name = os.path.basename(path).replace(".txt", "")
 
-        # Check if the file follows your naming system
         pref, num_id, g_name = parse_id_and_group(base_name, group_map)
         if not pref:
             print(
-                f"Skipping file {base_name}: Doesn't match group configuration prefixes.")
+                f"Skipping file {base_name}: Doesn't match active group configuration prefixes.")
             continue
 
         try:
@@ -248,9 +243,11 @@ def run_batch_bending_analysis(input_folder, group_map):
                     diff_post = np.diff(np.convolve(
                         search_load, np.ones(3) / 3, mode="same"))
                     local_min_indices = np.where(diff_post >= 0)[0]
-                    fail_idx = max_idx + search_start + \
-                        (local_min_indices[0] if len(
-                            local_min_indices) > 0 else len(search_load) - 1)
+                    fail_idx = (
+                        max_idx
+                        + search_start
+                        + (local_min_indices[0] if len(local_min_indices) > 0 else len(search_load) - 1)
+                    )
                 else:
                     fail_idx = len(load) - 1
 
@@ -264,8 +261,8 @@ def run_batch_bending_analysis(input_folder, group_map):
             disp_at_failure = adj_disp[fail_idx]
             load_at_failure = load[fail_idx]
 
-            disp_slope_candidates = (
-                displacement[:max_idx][toe_mask] - displacement[start_idx])
+            disp_slope_candidates = displacement[:max_idx][toe_mask] - \
+                displacement[start_idx]
             load_slope_candidates = pre_max_load[toe_mask]
 
             if len(disp_slope_candidates) < LINEAR_WINDOW_POINTS:
@@ -275,7 +272,7 @@ def run_batch_bending_analysis(input_folder, group_map):
                     disp_slope_candidates, load_slope_candidates, window=LINEAR_WINDOW_POINTS
                 )
 
-            if hasattr(np, 'trapezoid'):
+            if hasattr(np, "trapezoid"):
                 energy = np.trapezoid(
                     load[start_idx: fail_idx + 1], adj_disp[start_idx: fail_idx + 1])
             else:
@@ -294,8 +291,9 @@ def run_batch_bending_analysis(input_folder, group_map):
             plt.scatter(disp_at_failure, load_at_failure,
                         color="purple", label="Failure")
             plt.axvline(x=0, color="blue", linestyle="--", label="Toe End")
-            plt.fill_between(adj_disp[start_idx: fail_idx + 1],
-                             load[start_idx: fail_idx + 1], alpha=0.2, color="orange")
+            plt.fill_between(
+                adj_disp[start_idx: fail_idx + 1], load[start_idx: fail_idx + 1], alpha=0.2, color="orange"
+            )
             plt.title(base_name)
             plt.legend()
             plt.savefig(os.path.join(
@@ -326,6 +324,7 @@ def run_batch_bending_analysis(input_folder, group_map):
 # PART 2: MASTER MERGING & CONSOLIDATION
 # ===========================================================
 
+
 def sync_data_to_master(analysis_excel_path, master_file, measurement_file, group_map):
     if not analysis_excel_path or not os.path.exists(analysis_excel_path):
         return
@@ -351,7 +350,6 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
                 return headers.index(opt) + 1
         return None
 
-    # Identify output positions based on existing workbook structure
     col_len = find_col(["Length", "Avg. Length", "Avg_Length"]) or 2
     col_diam = find_col(["Diameter", "Avg. Diameter", "Avg_Diameter"]) or 3
     col_thick = find_col(["Thickness", "Avg. Thickness", "Avg_Thickness"]) or 4
@@ -362,7 +360,6 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
     col_disp = find_col(["Displacement at Failure",
                         "Displacement_at_Failure", "Displacement_at_Failure_mm"]) or 8
 
-    # Scan rows to match code patterns anywhere in column 1 or 2
     for row in range(2, ws.max_row + 1):
         cell_val1 = ws.cell(row=row, column=1).value
         cell_val2 = ws.cell(row=row, column=2).value
@@ -376,7 +373,6 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
 
         lookup_id = f"{pref}{num_id}"
 
-        # Sync geometric morphometry properties
         if not df_meas.empty:
             for idx, m_row in df_meas.iterrows():
                 m_pref, m_num, _ = parse_id_and_group(m_row.iloc[0], group_map)
@@ -389,7 +385,6 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
                         row=row, column=col_thick).value = m_row.iloc[12] if df_meas.shape[1] > 12 else None
                     break
 
-        # Sync automated testing metrics
         mach_row = df_mach[df_mach["Standardized_ID"] == lookup_id]
         if not mach_row.empty:
             ws.cell(
@@ -408,12 +403,9 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
 # PART 3: SEGREGATED SUB-STUDY CSV GENERATION (RE-PIVOTING)
 # ===========================================================
 
+
 def generate_segregated_csvs(master_path, export_dir, group_map):
-    """
-    Scans the updated Master sheet, pulls valid group codes dynamically,
-    and reshapes the data into side-by-side tables named strictly by metric.
-    """
-    if master_path.endswith('.csv'):
+    if master_path.endswith(".csv"):
         df = pd.read_csv(master_path)
     else:
         df = pd.read_excel(master_path)
@@ -429,7 +421,6 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
                     return h
         return None
 
-    # Clean, standardized keys that will serve as your exact filenames
     metric_mapping = {
         "Avg_Length": find_col_name(["Length", "Avg_Length", "Avg. Length"]),
         "Avg_Diameter": find_col_name(["Diameter", "Avg_Diameter", "Avg. Diameter"]),
@@ -437,7 +428,7 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
         "Max_Load": find_col_name(["Max_Load", "Maximum Load", "Max Load", "Max_Load_N"]),
         "Stiffness": find_col_name(["Stiffness", "Stiffness_N_per_mm", "Stiffness (N/mm)"]),
         "Energy_to_Failure": find_col_name(["Energy", "Energy_to_Failure", "Energy to Failure"]),
-        "Displacement_at_Failure": find_col_name(["Displacement", "Displacement_at_Failure"])
+        "Displacement_at_Failure": find_col_name(["Displacement", "Displacement_at_Failure"]),
     }
 
     parsed_rows = []
@@ -454,10 +445,7 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
         if not matched_pref:
             continue
 
-        row_data = {
-            "ID_Num": int(matched_num),
-            "Group": matched_gname
-        }
+        row_data = {"ID_Num": int(matched_num), "Group": matched_gname}
 
         for metric_key, actual_col in metric_mapping.items():
             row_data[metric_key] = row[actual_col] if actual_col else np.nan
@@ -465,35 +453,28 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
         parsed_rows.append(row_data)
 
     if not parsed_rows:
-        print("Notice: No matching group IDs could be extracted from master rows.")
+        print("Notice: No matching cohort IDs could be extracted from master rows.")
         return
 
     df_parsed = pd.DataFrame(parsed_rows)
     expected_columns = list(group_map.values())
     os.makedirs(export_dir, exist_ok=True)
 
-    # Re-pivot each found metric column into side-by-side dataframes
     for metric_name in metric_mapping.keys():
         if df_parsed[metric_name].isna().all():
             continue
 
         pivot_df = df_parsed.pivot_table(
-            index="ID_Num",
-            columns="Group",
-            values=metric_name,
-            aggfunc="first"
-        )
-
+            index="ID_Num", columns="Group", values=metric_name, aggfunc="first")
         pivot_df = pivot_df.reindex(columns=expected_columns)
         pivot_df = pivot_df.sort_index()
 
-        # Cleans up file naming so it outputs exactly as "Max_Load.csv", "Stiffness.csv", etc.
         out_csv_path = os.path.join(export_dir, f"{metric_name}.csv")
 
-        with open(out_csv_path, 'w', encoding='utf-8') as f:
+        with open(out_csv_path, "w", encoding="utf-8") as f:
             f.write("sep=,\n")
 
-        pivot_df.to_csv(out_csv_path, mode='a', sep=",", index=True)
+        pivot_df.to_csv(out_csv_path, mode="a", sep=",", index=True)
         print(f"Generated side-by-side table: {out_csv_path}")
 
 
@@ -501,27 +482,24 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
 # PART 4: PIPELINE EXECUTION ENGINE
 # ===========================================================
 
+
 def execute_single_study_pipeline(data_folder, master_path, measurement_path, csv_out_dir, group_map):
     root_path = Path(data_folder)
 
-    # 1. Complete mechanical force crunching
     analysis_excel = run_batch_bending_analysis(str(root_path), group_map)
     if not analysis_excel:
         print("Execution halted: No valid data files were evaluated.")
         return False
 
-    # 2. Append values straight into the workbook
     if os.path.exists(master_path):
         sync_data_to_master(analysis_excel, master_path,
                             measurement_path, group_map)
 
-        # 3. Drop a copy of the master spreadsheet into the master directory
         try:
             df_final = pd.read_excel(master_path)
             master_dir = os.path.dirname(master_path)
 
-            # CHANGED: The file is now explicitly named with your study prefix
-            compiled_filename = "IFS+SHP099+Medigel_LFemurMaster_Compiled.csv"
+            compiled_filename = f"{ACTIVE_STUDY_NAME.replace(' ', '_')}_Master_Compiled.csv"
             compiled_path = os.path.join(master_dir, compiled_filename)
 
             df_final.to_csv(compiled_path, index=False, sep=",")
@@ -529,7 +507,6 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
         except Exception as e:
             print(f"Failed to generate compiled master copy: {e}")
 
-        # 4. Generate individual pivoted matrices
         try:
             generate_segregated_csvs(master_path, csv_out_dir, group_map)
         except Exception as e:
@@ -539,81 +516,224 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
 
 
 # ===========================================================
-# PART 5: USER INTERFACE SCREEN DESIGN
+# PART 5: USER INTERFACE SCREEN DESIGN WITH LIVE PICKER
 # ===========================================================
+
+
+class StudyConfigWizard(tk.Toplevel):
+
+    def __init__(self, parent, save_callback=None, config_path="studies_config.json"):
+        super().__init__(parent)
+        self.title("Add New Study Configuration")
+        self.config_path = config_path
+        self.save_callback = save_callback
+        self.geometry("550x450")
+        self.grab_set()
+
+        self.study_name = ""
+        self.raw_data_root = tk.StringVar()
+        self.master_file = tk.StringVar()
+        self.measurement_file = tk.StringVar()
+        self.output_folder = tk.StringVar()
+        self.cohort_data = []
+
+        self.study_name = simpledialog.askstring(
+            "Study Name", "Enter the unique Study Name:", parent=self
+        )
+        if not self.study_name:
+            self.destroy()
+            return
+
+        self.build_ui()
+
+    def build_ui(self):
+        tk.Label(self, text=f"Configuring: {self.study_name}", font=(
+            "Arial", 12, "bold")).pack(pady=10)
+
+        path_frame = tk.LabelFrame(
+            self, text="Project Directories & Files", padx=10, pady=10)
+        path_frame.pack(fill="x", padx=15, pady=5)
+
+        self.create_path_row(path_frame, "Raw Data Root:",
+                             self.raw_data_root, is_folder=True)
+        self.create_path_row(path_frame, "Master File (.xlsx):",
+                             self.master_file, is_folder=False)
+        self.create_path_row(path_frame, "Measurement File:",
+                             self.measurement_file, is_folder=False)
+        self.create_path_row(path_frame, "Output Folder:",
+                             self.output_folder, is_folder=True)
+
+        cohort_frame = tk.LabelFrame(
+            self, text="Cohort Information Mapping", padx=10, pady=10)
+        cohort_frame.pack(fill="both", expand=True, padx=15, pady=10)
+
+        self.cohort_listbox = tk.Listbox(cohort_frame, height=5)
+        self.cohort_listbox.pack(
+            side="left", fill="both", expand=True, padx=(0, 10))
+
+        btn_frame = tk.Frame(cohort_frame)
+        btn_frame.pack(side="right", fill="y")
+
+        tk.Button(btn_frame, text="Add Mapping",
+                  command=self.add_cohort_mapping, width=12).pack(pady=2)
+        tk.Button(btn_frame, text="Remove Selected",
+                  command=self.remove_cohort_mapping, width=12).pack(pady=2)
+
+        tk.Button(
+            self,
+            text="Save Configuration",
+            font=("Arial", 10, "bold"),
+            bg="#4CAF50",
+            fg="white",
+            command=self.save_config,
+            pady=5,
+        ).pack(pady=15)
+
+    def create_path_row(self, frame, label_text, var_target, is_folder):
+        row = tk.Frame(frame)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text=label_text, width=18, anchor="w").pack(side="left")
+        tk.Entry(row, textvariable=var_target).pack(
+            side="left", fill="x", expand=True, padx=5)
+
+        def cmd():
+            if is_folder:
+                f = filedialog.askdirectory()
+            else:
+                f = filedialog.askopenfilename()
+            if f:
+                var_target.set(f)
+
+        tk.Button(row, text="Browse", command=cmd, width=8).pack(side="right")
+
+    def add_cohort_mapping(self):
+        mouse_code = simpledialog.askstring(
+            "Mouse Code", "Enter Prefix Code (e.g., CV, PV, PS):", parent=self)
+        if not mouse_code:
+            return
+
+        treatment = simpledialog.askstring(
+            "Treatment Group", f"Enter Treatment for '{mouse_code.upper()}':", parent=self
+        )
+        if not treatment:
+            return
+
+        mapping_str = f"{mouse_code.upper()} -> {treatment}"
+        self.cohort_data.append((mouse_code.upper(), treatment))
+        self.cohort_listbox.insert(tk.END, mapping_str)
+
+    def remove_cohort_mapping(self):
+        selected = self.cohort_listbox.curselection()
+        if selected:
+            idx = selected[0]
+            self.cohort_listbox.delete(idx)
+            self.cohort_data.pop(idx)
+
+    def save_config(self):
+        if not all([self.raw_data_root.get(), self.master_file.get(), self.output_folder.get()]):
+            messagebox.showerror(
+                "Error", "Required folder arrays and files are missing.")
+            return
+        if not self.cohort_data:
+            messagebox.showerror(
+                "Error", "You must input group prefix code parameters.")
+            return
+
+        full_data = load_full_dictionary()
+        full_data[self.study_name] = {
+            "raw_data_root": self.raw_data_root.get(),
+            "master_file": self.master_file.get(),
+            "measurement_file": self.measurement_file.get(),
+            "output_folder": self.output_folder.get(),
+            "group_map": {code: group for code, group in self.cohort_data},
+        }
+
+        with open(self.config_path, "w") as f:
+            json.dump(full_data, f, indent=4)
+
+        messagebox.showinfo(
+            "Success", f"'{self.study_name}' registered successfully.")
+
+        # FIXED: Destroy the child window BEFORE calling the refresh callback.
+        # This completely drops the window modal grab and allows the main Tkinter thread
+        # to cleanly re-render the layout and register the new combobox value selection.
+        self.destroy()
+
+        if self.save_callback:
+            self.save_callback(self.study_name)
+
 
 def launch_interface():
     root = tk.Tk()
-    root.title("Single Study Bending Pipeline")
-    root.geometry("680x400")
+    root.title("Multi-Study Bending Pipeline")
+    root.geometry("680x510")
     root.resizable(False, False)
 
-    path_raw = tk.StringVar(value=STUDY_CONFIG["raw_data_root"])
-    path_master = tk.StringVar(value=STUDY_CONFIG["master_file"])
-    path_meas = tk.StringVar(value=STUDY_CONFIG["measurement_file"])
-    path_out = tk.StringVar(value=STUDY_CONFIG["output_folder"])
+    studies_dict = load_full_dictionary()
 
-    def browse_raw():
-        f = filedialog.askdirectory(title="Select Raw Text Directory")
-        if f:
-            path_raw.set(f)
+    path_raw = tk.StringVar()
+    path_master = tk.StringVar()
+    path_meas = tk.StringVar()
+    path_out = tk.StringVar()
 
-    def browse_master():
-        f = filedialog.askopenfilename(
-            title="Select Target Master Workbook", filetypes=[("Excel Files", "*.xlsx")])
-        if f:
-            path_master.set(f)
+    # ===========================================================
+    # TOP-LEVEL DROPDOWN DRIVER CONTROLS
+    # ===========================================================
+    selector_frame = tk.LabelFrame(
+        root, text="Active Workspace Profile Selection", padx=10, pady=8)
+    selector_frame.pack(fill="x", padx=25, pady=10)
 
-    def browse_meas():
-        f = filedialog.askopenfilename(title="Select Dimensions Ledger", filetypes=[
-                                       ("Excel Files", "*.xlsx")])
-        if f:
-            path_meas.set(f)
+    tk.Label(selector_frame, text="Select Profile:", font=(
+        "Arial", 10, "bold")).pack(side="left", padx=5)
 
-    def browse_out():
-        f = filedialog.askdirectory(
-            title="Select Destination Folder for the 7 Metric CSVs")
-        if f:
-            path_out.set(f)
+    study_selector = ttk.Combobox(selector_frame, values=list(
+        studies_dict.keys()), state="readonly", width=40)
+    study_selector.pack(side="left", padx=10)
 
-    def run_pipeline():
-        root.title("Processing Single Study Matrix Data... Please wait.")
-        root.update()
+    def on_study_changed(event=None):
+        global ACTIVE_STUDY_NAME, ACTIVE_GROUP_MAP
+        selected = study_selector.get()
+        if not selected or selected not in studies_dict:
+            return
 
-        current_raw = path_raw.get()
-        current_master = path_master.get()
-        current_meas = path_meas.get()
-        current_out = path_out.get()
+        ACTIVE_STUDY_NAME = selected
+        profile = studies_dict[selected]
 
-        # Save values to config JSON so changes are remembered
-        save_study_config(current_raw, current_master,
-                          current_meas, current_out)
+        path_raw.set(profile.get("raw_data_root", ""))
+        path_master.set(profile.get("master_file", ""))
+        path_meas.set(profile.get("measurement_file", ""))
+        path_out.set(profile.get("output_folder", ""))
 
-        try:
-            success = execute_single_study_pipeline(
-                data_folder=current_raw,
-                master_path=current_master,
-                measurement_path=current_meas,
-                csv_out_dir=current_out,
-                group_map=STUDY_CONFIG["group_map"]
-            )
-            if success:
-                messagebox.showinfo(
-                    "Success", "Calculations completed. Master updated and 7 metric CSVs exported successfully.")
-            else:
-                messagebox.showwarning(
-                    "Incomplete", "No analysis calculations could be finalized.")
-        except Exception as e:
-            messagebox.showerror(
-                "Execution Error", f"An unhandled error occurred:\n{e}")
-        finally:
-            root.title("Single Study Bending Pipeline")
+        ACTIVE_GROUP_MAP = profile.get(
+            "group_map") or profile.get("cohort_information") or {}
 
-    tk.Label(root, text="Single Study Mechanical Analysis",
-             font=("Arial", 13, "bold")).pack(pady=15)
+    study_selector.bind("<<ComboboxSelected>>", on_study_changed)
 
+    def refresh_dropdown_options(new_study_to_select=None):
+        nonlocal studies_dict
+        studies_dict = load_full_dictionary()
+        study_selector["values"] = list(studies_dict.keys())
+
+        if new_study_to_select:
+            study_selector.set(new_study_to_select)
+        elif ACTIVE_STUDY_NAME in studies_dict:
+            study_selector.set(ACTIVE_STUDY_NAME)
+        elif studies_dict:
+            study_selector.set(list(studies_dict.keys())[0])
+
+        on_study_changed()
+
+    if ACTIVE_STUDY_NAME in studies_dict:
+        study_selector.set(ACTIVE_STUDY_NAME)
+    elif studies_dict:
+        study_selector.set(list(studies_dict.keys())[0])
+    on_study_changed()
+
+    # ===========================================================
+    # SUB-FIELDS SELECTIONS LAYOUT
+    # ===========================================================
     fields_frame = tk.Frame(root)
-    fields_frame.pack(fill="both", expand=True, padx=25)
+    fields_frame.pack(fill="both", expand=True, padx=25, pady=5)
 
     def add_ui_row(label_text, variable, command):
         row = tk.Frame(fields_frame)
@@ -623,13 +743,68 @@ def launch_interface():
                  width=50).pack(side="left", padx=5)
         tk.Button(row, text="Browse...", command=command).pack(side="left")
 
-    add_ui_row("Raw Data Folder:", path_raw, browse_raw)
-    add_ui_row("Master Excel File:", path_master, browse_master)
-    add_ui_row("Physical Measurements Excel File:", path_meas, browse_meas)
-    add_ui_row("CSV Export Folder:", path_out, browse_out)
+    add_ui_row("Raw Data Folder:", path_raw, lambda: [
+               f := filedialog.askdirectory(), f and path_raw.set(f)])
+    add_ui_row("Master Excel File:", path_master, lambda: [f := filedialog.askopenfilename(
+        filetypes=[("Excel Files", "*.xlsx")]), f and path_master.set(f)])
+    add_ui_row("Measurements File:", path_meas, lambda: [f := filedialog.askopenfilename(
+        filetypes=[("Excel Files", "*.xlsx")]), f and path_meas.set(f)])
+    add_ui_row("CSV Export Folder:", path_out, lambda: [
+               f := filedialog.askdirectory(), f and path_out.set(f)])
 
-    tk.Button(root, text="Execute Workflow", bg="#2E7D32", fg="white", font=(
-        "Arial", 11, "bold"), padx=30, pady=8, command=run_pipeline).pack(pady=15)
+    def run_pipeline():
+        root.title(f"Processing '{ACTIVE_STUDY_NAME}'... Please wait.")
+        root.update()
+
+        current_raw = path_raw.get()
+        current_master = path_master.get()
+        current_meas = path_meas.get()
+        current_out = path_out.get()
+
+        save_single_study_update(
+            ACTIVE_STUDY_NAME, current_raw, current_master, current_meas, current_out)
+
+        try:
+            success = execute_single_study_pipeline(
+                data_folder=current_raw,
+                master_path=current_master,
+                measurement_path=current_meas,
+                csv_out_dir=current_out,
+                group_map=ACTIVE_GROUP_MAP,
+            )
+            if success:
+                messagebox.showinfo(
+                    "Success", f"Pipeline executed successfully for study: {ACTIVE_STUDY_NAME}"
+                )
+            else:
+                messagebox.showwarning(
+                    "Incomplete", "No analysis calculations could be finalized.")
+        except Exception as e:
+            messagebox.showerror(
+                "Execution Error", f"An unhandled error occurred:\n{e}")
+        finally:
+            root.title("Multi-Study Bending Pipeline")
+
+    tk.Button(
+        root,
+        text="➕ Add New Study Configuration",
+        command=lambda: StudyConfigWizard(
+            root, save_callback=refresh_dropdown_options),
+        font=("Arial", 10),
+        bg="#2196F3",
+        fg="white",
+    ).pack(pady=10)
+
+    tk.Button(
+        root,
+        text="Execute Workflow",
+        bg="#2E7D32",
+        fg="white",
+        font=("Arial", 11, "bold"),
+        padx=30,
+        pady=8,
+        command=run_pipeline,
+    ).pack(pady=15)
 
     root.mainloop()
 
