@@ -756,12 +756,12 @@ def launch_public_interface():
                  width=48).pack(side="left", padx=5)
         tk.Button(row, text="Browse...", command=command).pack(side="left")
 
-    add_ui_row("Raw Data Root Folder:", path_raw, browse_raw)
-    add_ui_row("Tibia Master Destination:",
+    add_ui_row("Raw Data Folder:", path_raw, browse_raw)
+    add_ui_row("Tibia Master Excel File:",
                path_tibia_master, browse_tibia_master)
-    add_ui_row("Femur Master Destination:",
+    add_ui_row("Femur Master Excel File:",
                path_femur_master, browse_femur_master)
-    add_ui_row("Physical Measurements:", path_meas, browse_meas)
+    add_ui_row("Physical Measurements Excel File:", path_meas, browse_meas)
     add_ui_row("CSV Export Folder:", path_csv, browse_csv)
 
     layout_row = tk.Frame(fields_frame)
@@ -782,7 +782,7 @@ def launch_public_interface():
         fallback_row, textvariable=fallback_bone_option, values=bone_options, state="readonly", width=28)
     fallback_dropdown.pack(side="left", padx=5)
 
-    tk.Button(root, text="Run Engineering Pipeline", bg="#2E7D32", fg="white", font=(
+    tk.Button(root, text="Execute Workflow", bg="#2E7D32", fg="white", font=(
         "Arial", 11, "bold"), padx=30, pady=8, command=run_pipeline).pack(pady=15)
 
     root.mainloop()
