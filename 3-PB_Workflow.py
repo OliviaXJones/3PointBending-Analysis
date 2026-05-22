@@ -761,7 +761,7 @@ def launch_public_interface():
                path_tibia_master, browse_tibia_master)
     add_ui_row("Femur Master Excel File:",
                path_femur_master, browse_femur_master)
-    add_ui_row("Physical Measurements Excel File:", path_meas, browse_meas)
+    add_ui_row("Measurements File:", path_meas, browse_meas)
     add_ui_row("CSV Export Folder:", path_csv, browse_csv)
 
     layout_row = tk.Frame(fields_frame)
