@@ -2,16 +2,25 @@ import glob
 import json
 import os
 import re
+import sys
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import openpyxl
 import pandas as pd
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (
+    QMainWindow, QDialog, QWidget, QVBoxLayout, QHBoxLayout,
+    QFormLayout, QGroupBox, QLabel, QLineEdit, QComboBox,
+    QPushButton, QFileDialog, QMessageBox, QApplication, QInputDialog,
+    QTableWidget, QTableWidgetItem, QHeaderView
+
+)
 
 matplotlib.use("Agg")
 
@@ -516,250 +525,505 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
 
 
 # ===========================================================
-# PART 5: USER INTERFACE SCREEN DESIGN WITH LIVE PICKER
+# PART 5: PYQT6 INTERFACE & WIZARD DESIGN (DARK MODE STYLED)
 # ===========================================================
 
+# Clean, high-contrast dark theme with enhanced text sizing
+DARK_STYLE = """
+    QMainWindow, QDialog {
+        background-color: #1e1e1e;
+    }
+    QGroupBox {
+        background-color: #252526;
+        border: 1px solid #3f3f46;
+        border-radius: 6px;
+        margin-top: 10px;
+        padding-top: 14px;
+        font-weight: bold;
+        font-size: 15px;
+        color: #e4e4e7;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        left: 12px;
+        padding: 0 4px;
+    }
+    QLabel {
+        color: #d4d4d8;
+        font-size: 14px;
+    }
+    QLineEdit {
+        background-color: #2d2d30;
+        color: #ffffff;
+        border: 1px solid #3f3f46;
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 14px;
+    }
+    QLineEdit:focus {
+        border: 1px solid #007acc;
+    }
+    QComboBox {
+        background-color: #2d2d30;
+        color: #ffffff;
+        border: 1px solid #3f3f46;
+        border-radius: 4px;
+        padding: 6px 28px 6px 10px;
+        min-height: 26px;
+        font-size: 14px;
+    }
+    QComboBox:focus {
+        border: 1px solid #007acc;
+    }
+    QComboBox::drop-down {
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 24px;
+        border-left: 1px solid #3f3f46;
+    }
+    QComboBox QAbstractItemView {
+        background-color: #2d2d30;
+        color: #ffffff;
+        selection-background-color: #007acc;
+        selection-color: #ffffff;
+        border: 1px solid #3f3f46;
+        font-size: 14px;
+    }
+    QTableWidget {
+        background-color: #2d2d30;
+        color: #ffffff;
+        border: 1px solid #3f3f46;
+        gridline-color: #3f3f46;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    QTableWidget QLineEdit {
+        background-color: #1e1e1e;
+        color: #ffffff;
+        border: 1px solid #007acc;
+        padding: 2px 5px;
+        font-size: 14px;
+    }
+    QTableWidget::item {
+        padding: 6px;
+    }
+    QTableWidget::item {
+        padding: 5px;
+    }
+    QTableWidget::item:focus {
+        background-color: #3e3e42;
+        color: #ffffff;
+    }
+    QHeaderView::section {
+        background-color: #333337;
+        color: #d4d4d8;
+        padding: 4px;
+        border: 1px solid #3f3f46;
+        font-size: 13px;
+        font-weight: bold;
+    }
+    QPushButton {
+        background-color: #3e3e42;
+        color: #ffffff;
+        border: 1px solid #555555;
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: #4e4e52;
+        border: 1px solid #007acc;
+    }
+    QPushButton:pressed {
+        background-color: #2d2d30;
+    }
+    QMessageBox {
+        background-color: #1e1e1e;
+    }
+"""
 
-class StudyConfigWizard(tk.Toplevel):
 
-    def __init__(self, parent, save_callback=None, config_path="studies_config.json"):
+class CohortMappingWidget(QWidget):
+    """
+    A single-menu interface that places the sample prefix identifier 
+    and treatment group on the same row for intuitive mapping.
+    """
+
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.title("Add New Study Configuration")
-        self.config_path = config_path
-        self.save_callback = save_callback
-        self.geometry("550x450")
-        self.grab_set()
+        self.init_ui()
 
-        self.study_name = ""
-        self.raw_data_root = tk.StringVar()
-        self.master_file = tk.StringVar()
-        self.measurement_file = tk.StringVar()
-        self.output_folder = tk.StringVar()
-        self.cohort_data = []
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(10)
 
-        self.study_name = simpledialog.askstring(
-            "Study Name", "Enter the unique Study Name:", parent=self
-        )
-        if not self.study_name:
-            self.destroy()
+        # Unified Mapping Table
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(
+            ["Filename Prefix (e.g., PS)", "Treatment Group (e.g., Paroxetine)"])
+
+        # --- NEW VISIBILITY ENHANCEMENTS ---
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setAlternatingRowColors(True)
+
+        # Give every row a comfortable, readable height (default is usually a cramped ~20px)
+        self.table.verticalHeader().setDefaultSectionSize(36)
+        # Make the header sections taller too
+        self.table.horizontalHeader().setMinimumHeight(32)
+        # ------------------------------------
+
+        layout.addWidget(self.table)
+
+        # Action Buttons for Rows
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        self.add_row_btn = QPushButton("+ Add Mapping Row")
+        self.add_row_btn.clicked.connect(self.add_mapping_row)
+        btn_layout.addWidget(self.add_row_btn)
+
+        self.remove_row_btn = QPushButton("- Remove Selected")
+        self.remove_row_btn.clicked.connect(self.remove_selected_row)
+        btn_layout.addWidget(self.remove_row_btn)
+
+        btn_layout.addStretch(1)
+        layout.addLayout(btn_layout)
+
+    def add_mapping_row(self, prefix="", treatment=""):
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+
+        prefix_item = QTableWidgetItem(prefix)
+        treatment_item = QTableWidgetItem(treatment)
+
+        self.table.setItem(row_idx, 0, prefix_item)
+        self.table.setItem(row_idx, 1, treatment_item)
+
+    def remove_selected_row(self):
+        current_row = self.table.currentRow()
+        if current_row >= 0:
+            self.table.removeRow(current_row)
+
+    def set_mapping(self, group_map):
+        self.table.setRowCount(0)
+        if not group_map:
+            self.add_mapping_row()
             return
 
+        for prefix, treatment in group_map.items():
+            self.add_mapping_row(str(prefix), str(treatment))
+
+    def get_mapping(self):
+        group_map = {}
+        for row in range(self.table.rowCount()):
+            prefix_item = self.table.item(row, 0)
+            treatment_item = self.table.item(row, 1)
+
+            if prefix_item and treatment_item:
+                prefix = prefix_item.text().strip().upper()
+                treatment = treatment_item.text().strip()
+
+                if prefix and treatment:
+                    group_map[prefix] = treatment
+        return group_map
+
+
+class StudyConfigWizard(QDialog):
+    config_saved = pyqtSignal(str)
+
+    def __init__(self, parent=None, study_name="", config_path="studies_config.json"):
+        super().__init__(parent)
+        self.config_path = config_path
+        self.study_name = study_name.strip()
+
+        self.setWindowTitle(f"Configure Profile: {self.study_name}")
+        self.resize(650, 600)
+        self.setStyleSheet(DARK_STYLE)
         self.build_ui()
 
+        self.full_data = load_full_dictionary()
+        if self.study_name in self.full_data:
+            self.prepopulate_existing_values(self.full_data[self.study_name])
+        else:
+            # Seed an empty row for brand new studies
+            self.cohort_mapper.set_mapping({})
+
     def build_ui(self):
-        tk.Label(self, text=f"Configuring: {self.study_name}", font=(
-            "Arial", 12, "bold")).pack(pady=10)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(12)
 
-        path_frame = tk.LabelFrame(
-            self, text="Project Directories & Files", padx=10, pady=10)
-        path_frame.pack(fill="x", padx=15, pady=5)
+        dir_group = QGroupBox(
+            f"Project Directories & Files: {self.study_name}")
+        form_layout = QFormLayout(dir_group)
+        form_layout.setSpacing(10)
 
-        self.create_path_row(path_frame, "Raw Data Root:",
-                             self.raw_data_root, is_folder=True)
-        self.create_path_row(path_frame, "Master File (.xlsx):",
-                             self.master_file, is_folder=False)
-        self.create_path_row(path_frame, "Measurement File:",
-                             self.measurement_file, is_folder=False)
-        self.create_path_row(path_frame, "Output Folder:",
-                             self.output_folder, is_folder=True)
+        self.raw_data_root_edit = QLineEdit()
+        form_layout.addRow("Raw Data Root:", self.create_path_row(
+            self.raw_data_root_edit, is_folder=True))
 
-        cohort_frame = tk.LabelFrame(
-            self, text="Cohort Information Mapping", padx=10, pady=10)
-        cohort_frame.pack(fill="both", expand=True, padx=15, pady=10)
+        self.master_file_edit = QLineEdit()
+        form_layout.addRow("Master File (.xlsx):", self.create_path_row(
+            self.master_file_edit, is_folder=False))
 
-        self.cohort_listbox = tk.Listbox(cohort_frame, height=5)
-        self.cohort_listbox.pack(
-            side="left", fill="both", expand=True, padx=(0, 10))
+        self.measurement_file_edit = QLineEdit()
+        form_layout.addRow("Measurement File:", self.create_path_row(
+            self.measurement_file_edit, is_folder=False))
 
-        btn_frame = tk.Frame(cohort_frame)
-        btn_frame.pack(side="right", fill="y")
+        self.output_folder_edit = QLineEdit()
+        form_layout.addRow("Output Folder:", self.create_path_row(
+            self.output_folder_edit, is_folder=True))
 
-        tk.Button(btn_frame, text="Add Mapping",
-                  command=self.add_cohort_mapping, width=12).pack(pady=2)
-        tk.Button(btn_frame, text="Remove Selected",
-                  command=self.remove_cohort_mapping, width=12).pack(pady=2)
+        main_layout.addWidget(dir_group)
 
-        tk.Button(
-            self,
-            text="Save Configuration",
-            font=("Arial", 10, "bold"),
-            bg="#4CAF50",
-            fg="white",
-            command=self.save_config,
-            pady=5,
-        ).pack(pady=15)
+        cohort_group = QGroupBox("Cohort Information Mapping")
+        cohort_layout = QVBoxLayout(cohort_group)
 
-    def create_path_row(self, frame, label_text, var_target, is_folder):
-        row = tk.Frame(frame)
-        row.pack(fill="x", pady=3)
-        tk.Label(row, text=label_text, width=18, anchor="w").pack(side="left")
-        tk.Entry(row, textvariable=var_target).pack(
-            side="left", fill="x", expand=True, padx=5)
+        # Insert our single-view table mapping widget here
+        self.cohort_mapper = CohortMappingWidget()
+        cohort_layout.addWidget(self.cohort_mapper)
 
-        def cmd():
+        main_layout.addWidget(cohort_group)
+
+        save_btn = QPushButton("Save Configuration Updates")
+        save_btn.setStyleSheet(
+            "background-color: #2e7d32; color: white; font-weight: bold; font-size: 15px; padding: 10px;")
+        save_btn.clicked.connect(self.save_config)
+        main_layout.addWidget(save_btn)
+
+    def prepopulate_existing_values(self, profile):
+        self.raw_data_root_edit.setText(profile.get("raw_data_root", ""))
+        self.master_file_edit.setText(profile.get("master_file", ""))
+        self.measurement_file_edit.setText(profile.get("measurement_file", ""))
+        self.output_folder_edit.setText(profile.get("output_folder", ""))
+
+        g_map = profile.get("group_map") or profile.get(
+            "cohort_information") or {}
+        self.cohort_mapper.set_mapping(g_map)
+
+    def create_path_row(self, line_edit, is_folder):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(line_edit)
+
+        browse_btn = QPushButton("Browse")
+
+        def browse_cmd():
             if is_folder:
-                f = filedialog.askdirectory()
+                path = QFileDialog.getExistingDirectory(
+                    self, "Select Directory")
             else:
-                f = filedialog.askopenfilename()
-            if f:
-                var_target.set(f)
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Select File", "", "Excel Files (*.xlsx);;All Files (*)")
+            if path:
+                line_edit.setText(path)
 
-        tk.Button(row, text="Browse", command=cmd, width=8).pack(side="right")
-
-    def add_cohort_mapping(self):
-        mouse_code = simpledialog.askstring(
-            "Mouse Code", "Enter Prefix Code (e.g., CV, PV, PS):", parent=self)
-        if not mouse_code:
-            return
-
-        treatment = simpledialog.askstring(
-            "Treatment Group", f"Enter Treatment for '{mouse_code.upper()}':", parent=self
-        )
-        if not treatment:
-            return
-
-        mapping_str = f"{mouse_code.upper()} -> {treatment}"
-        self.cohort_data.append((mouse_code.upper(), treatment))
-        self.cohort_listbox.insert(tk.END, mapping_str)
-
-    def remove_cohort_mapping(self):
-        selected = self.cohort_listbox.curselection()
-        if selected:
-            idx = selected[0]
-            self.cohort_listbox.delete(idx)
-            self.cohort_data.pop(idx)
+        browse_btn.clicked.connect(browse_cmd)
+        layout.addWidget(browse_btn)
+        return container
 
     def save_config(self):
-        if not all([self.raw_data_root.get(), self.master_file.get(), self.output_folder.get()]):
-            messagebox.showerror(
-                "Error", "Required folder arrays and files are missing.")
-            return
-        if not self.cohort_data:
-            messagebox.showerror(
-                "Error", "You must input group prefix code parameters.")
+        if not all([self.raw_data_root_edit.text(), self.master_file_edit.text(), self.output_folder_edit.text()]):
+            QMessageBox.critical(
+                self, "Error", "Required folder paths and files are missing.")
             return
 
-        full_data = load_full_dictionary()
-        full_data[self.study_name] = {
-            "raw_data_root": self.raw_data_root.get(),
-            "master_file": self.master_file.get(),
-            "measurement_file": self.measurement_file.get(),
-            "output_folder": self.output_folder.get(),
-            "group_map": {code: group for code, group in self.cohort_data},
+        group_map_data = self.cohort_mapper.get_mapping()
+        if not group_map_data:
+            QMessageBox.critical(
+                self, "Error", "You must input at least one complete group prefix code parameter.")
+            return
+
+        self.full_data[self.study_name] = {
+            "raw_data_root": self.raw_data_root_edit.text(),
+            "master_file": self.master_file_edit.text(),
+            "measurement_file": self.measurement_file_edit.text(),
+            "output_folder": self.output_folder_edit.text(),
+            "group_map": group_map_data,
         }
 
-        with open(self.config_path, "w") as f:
-            json.dump(full_data, f, indent=4)
-
-        messagebox.showinfo(
-            "Success", f"'{self.study_name}' registered successfully.")
-
-        # FIXED: Destroy the child window BEFORE calling the refresh callback.
-        # This completely drops the window modal grab and allows the main Tkinter thread
-        # to cleanly re-render the layout and register the new combobox value selection.
-        self.destroy()
-
-        if self.save_callback:
-            self.save_callback(self.study_name)
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump(self.full_data, f, indent=4)
+            QMessageBox.information(
+                self, "Success", f"'{self.study_name}' written successfully.")
+            self.config_saved.emit(self.study_name)
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error",
+                                 f"Could not write configuration data:\n{e}")
 
 
-def launch_interface():
-    root = tk.Tk()
-    root.title("Multi-Study Bending Pipeline")
-    root.geometry("680x510")
-    root.resizable(False, False)
+class MainWindow(QMainWindow):
 
-    studies_dict = load_full_dictionary()
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("3-Point Bending: Single Study Pipeline")
+        self.setFixedSize(720, 560)
+        self.setStyleSheet(DARK_STYLE)
 
-    path_raw = tk.StringVar()
-    path_master = tk.StringVar()
-    path_meas = tk.StringVar()
-    path_out = tk.StringVar()
+        self.studies_dict = load_full_dictionary()
+        self.build_ui()
+        self.refresh_dropdown_options()
 
-    # ===========================================================
-    # TOP-LEVEL DROPDOWN DRIVER CONTROLS
-    # ===========================================================
-    selector_frame = tk.LabelFrame(
-        root, text="Active Workspace Profile Selection", padx=10, pady=8)
-    selector_frame.pack(fill="x", padx=25, pady=10)
+    def build_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(25, 15, 25, 15)
+        main_layout.setSpacing(12)
 
-    tk.Label(selector_frame, text="Select Profile:", font=(
-        "Arial", 10, "bold")).pack(side="left", padx=5)
+        selector_group = QGroupBox("Study Selection")
+        selector_layout = QHBoxLayout(selector_group)
+        selector_layout.setContentsMargins(15, 12, 15, 12)
 
-    study_selector = ttk.Combobox(selector_frame, values=list(
-        studies_dict.keys()), state="readonly", width=40)
-    study_selector.pack(side="left", padx=10)
+        self.study_selector = QComboBox()
+        self.study_selector.setMinimumWidth(320)
+        self.study_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.study_selector.currentIndexChanged.connect(self.on_study_changed)
 
-    def on_study_changed(event=None):
+        selector_layout.addWidget(self.study_selector)
+        selector_layout.addStretch(1)
+        main_layout.addWidget(selector_group)
+
+        fields_group = QGroupBox("File Path Selections")
+        fields_form = QFormLayout(fields_group)
+        fields_form.setSpacing(10)
+
+        self.path_raw_edit = QLineEdit()
+        fields_form.addRow("Raw Data Folder:", self.create_main_browse_row(
+            self.path_raw_edit, is_folder=True))
+
+        self.path_master_edit = QLineEdit()
+        fields_form.addRow("Master Excel File:", self.create_main_browse_row(
+            self.path_master_edit, is_folder=False))
+
+        self.path_meas_edit = QLineEdit()
+        fields_form.addRow("Measurements File:", self.create_main_browse_row(
+            self.path_meas_edit, is_folder=False))
+
+        self.path_out_edit = QLineEdit()
+        fields_form.addRow("CSV Export Folder:", self.create_main_browse_row(
+            self.path_out_edit, is_folder=True))
+
+        main_layout.addWidget(fields_group)
+
+        btn_layout = QVBoxLayout()
+        btn_layout.setSpacing(10)
+
+        management_row = QHBoxLayout()
+        management_row.setSpacing(10)
+
+        add_config_btn = QPushButton("Add New Study")
+        add_config_btn.setStyleSheet(
+            "background-color: #007acc; color: white; padding: 10px; font-size: 14px; font-weight: bold;")
+        add_config_btn.clicked.connect(self.add_new_study_profile)
+        management_row.addWidget(add_config_btn)
+
+        edit_config_btn = QPushButton("Edit Active Study")
+        edit_config_btn.setStyleSheet(
+            "background-color: #d8a000; color: #1e1e1e; padding: 10px; font-size: 14px; font-weight: bold;")
+        edit_config_btn.clicked.connect(self.edit_active_study_profile)
+        management_row.addWidget(edit_config_btn)
+
+        btn_layout.addLayout(management_row)
+
+        execute_btn = QPushButton("Execute Workflow")
+        execute_btn.setStyleSheet(
+            "background-color: #2e7d32; color: white; font-weight: bold; font-size: 15px; padding: 12px;")
+        execute_btn.clicked.connect(self.run_pipeline)
+        btn_layout.addWidget(execute_btn)
+
+        main_layout.addLayout(btn_layout)
+
+    def create_main_browse_row(self, line_edit, is_folder):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(line_edit)
+
+        browse_btn = QPushButton("Browse...")
+
+        def browse_cmd():
+            if is_folder:
+                path = QFileDialog.getExistingDirectory(
+                    self, "Select Directory")
+            else:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Select Excel File", "", "Excel Files (*.xlsx)")
+            if path:
+                line_edit.setText(path)
+        browse_btn.clicked.connect(browse_cmd)
+        layout.addWidget(browse_btn)
+        return container
+
+    def on_study_changed(self):
         global ACTIVE_STUDY_NAME, ACTIVE_GROUP_MAP
-        selected = study_selector.get()
-        if not selected or selected not in studies_dict:
+        selected = self.study_selector.currentText()
+        if not selected or selected not in self.studies_dict:
             return
 
         ACTIVE_STUDY_NAME = selected
-        profile = studies_dict[selected]
+        profile = self.studies_dict[selected]
 
-        path_raw.set(profile.get("raw_data_root", ""))
-        path_master.set(profile.get("master_file", ""))
-        path_meas.set(profile.get("measurement_file", ""))
-        path_out.set(profile.get("output_folder", ""))
+        self.path_raw_edit.setText(profile.get("raw_data_root", ""))
+        self.path_master_edit.setText(profile.get("master_file", ""))
+        self.path_meas_edit.setText(profile.get("measurement_file", ""))
+        self.path_out_edit.setText(profile.get("output_folder", ""))
 
         ACTIVE_GROUP_MAP = profile.get(
             "group_map") or profile.get("cohort_information") or {}
 
-    study_selector.bind("<<ComboboxSelected>>", on_study_changed)
+    def refresh_dropdown_options(self, new_study_to_select=None):
+        self.studies_dict = load_full_dictionary()
 
-    def refresh_dropdown_options(new_study_to_select=None):
-        nonlocal studies_dict
-        studies_dict = load_full_dictionary()
-        study_selector["values"] = list(studies_dict.keys())
+        self.study_selector.blockSignals(True)
+        self.study_selector.clear()
+        self.study_selector.addItems(list(self.studies_dict.keys()))
+        self.study_selector.blockSignals(False)
 
         if new_study_to_select:
-            study_selector.set(new_study_to_select)
-        elif ACTIVE_STUDY_NAME in studies_dict:
-            study_selector.set(ACTIVE_STUDY_NAME)
-        elif studies_dict:
-            study_selector.set(list(studies_dict.keys())[0])
+            self.study_selector.setCurrentText(new_study_to_select)
+        elif ACTIVE_STUDY_NAME in self.studies_dict:
+            self.study_selector.setCurrentText(ACTIVE_STUDY_NAME)
+        elif self.studies_dict:
+            self.study_selector.setCurrentIndex(0)
 
-        on_study_changed()
+        self.on_study_changed()
 
-    if ACTIVE_STUDY_NAME in studies_dict:
-        study_selector.set(ACTIVE_STUDY_NAME)
-    elif studies_dict:
-        study_selector.set(list(studies_dict.keys())[0])
-    on_study_changed()
+    def add_new_study_profile(self):
+        study_name, ok = QInputDialog.getText(
+            self, "Create Profile", "Enter the unique name for the new study:")
+        if ok and study_name.strip():
+            wizard = StudyConfigWizard(self, study_name=study_name.strip())
+            wizard.config_saved.connect(self.refresh_dropdown_options)
+            wizard.exec()
 
-    # ===========================================================
-    # SUB-FIELDS SELECTIONS LAYOUT
-    # ===========================================================
-    fields_frame = tk.Frame(root)
-    fields_frame.pack(fill="both", expand=True, padx=25, pady=5)
+    def edit_active_study_profile(self):
+        active_profile = self.study_selector.currentText()
+        if not active_profile:
+            QMessageBox.warning(self, "Selection Error",
+                                "No active workspace profile selected to edit.")
+            return
 
-    def add_ui_row(label_text, variable, command):
-        row = tk.Frame(fields_frame)
-        row.pack(fill="x", pady=6)
-        tk.Label(row, text=label_text, width=22, anchor="w").pack(side="left")
-        tk.Entry(row, textvariable=variable,
-                 width=50).pack(side="left", padx=5)
-        tk.Button(row, text="Browse...", command=command).pack(side="left")
+        wizard = StudyConfigWizard(self, study_name=active_profile)
+        wizard.config_saved.connect(self.refresh_dropdown_options)
+        wizard.exec()
 
-    add_ui_row("Raw Data Folder:", path_raw, lambda: [
-               f := filedialog.askdirectory(), f and path_raw.set(f)])
-    add_ui_row("Master Excel File:", path_master, lambda: [f := filedialog.askopenfilename(
-        filetypes=[("Excel Files", "*.xlsx")]), f and path_master.set(f)])
-    add_ui_row("Measurements File:", path_meas, lambda: [f := filedialog.askopenfilename(
-        filetypes=[("Excel Files", "*.xlsx")]), f and path_meas.set(f)])
-    add_ui_row("CSV Export Folder:", path_out, lambda: [
-               f := filedialog.askdirectory(), f and path_out.set(f)])
+    def run_pipeline(self):
+        self.setWindowTitle(
+            f"Processing '{ACTIVE_STUDY_NAME}'... Please wait.")
+        QApplication.processEvents()
 
-    def run_pipeline():
-        root.title(f"Processing '{ACTIVE_STUDY_NAME}'... Please wait.")
-        root.update()
-
-        current_raw = path_raw.get()
-        current_master = path_master.get()
-        current_meas = path_meas.get()
-        current_out = path_out.get()
+        current_raw = self.path_raw_edit.text()
+        current_master = self.path_master_edit.text()
+        current_meas = self.path_meas_edit.text()
+        current_out = self.path_out_edit.text()
 
         save_single_study_update(
             ACTIVE_STUDY_NAME, current_raw, current_master, current_meas, current_out)
@@ -773,41 +1037,20 @@ def launch_interface():
                 group_map=ACTIVE_GROUP_MAP,
             )
             if success:
-                messagebox.showinfo(
-                    "Success", f"Pipeline executed successfully for study: {ACTIVE_STUDY_NAME}"
-                )
+                QMessageBox.information(
+                    self, "Success", f"Pipeline executed successfully for study: {ACTIVE_STUDY_NAME}")
             else:
-                messagebox.showwarning(
-                    "Incomplete", "No analysis calculations could be finalized.")
+                QMessageBox.warning(
+                    self, "Incomplete", "No analysis calculations could be finalized.")
         except Exception as e:
-            messagebox.showerror(
-                "Execution Error", f"An unhandled error occurred:\n{e}")
+            QMessageBox.critical(self, "Execution Error",
+                                 f"An unhandled error occurred:\n{e}")
         finally:
-            root.title("Multi-Study Bending Pipeline")
-
-    tk.Button(
-        root,
-        text="➕ Add New Study Configuration",
-        command=lambda: StudyConfigWizard(
-            root, save_callback=refresh_dropdown_options),
-        font=("Arial", 10),
-        bg="#2196F3",
-        fg="white",
-    ).pack(pady=10)
-
-    tk.Button(
-        root,
-        text="Execute Workflow",
-        bg="#2E7D32",
-        fg="white",
-        font=("Arial", 11, "bold"),
-        padx=30,
-        pady=8,
-        command=run_pipeline,
-    ).pack(pady=15)
-
-    root.mainloop()
+            self.setWindowTitle("3-Point Bending: Single Study Pipeline")
 
 
 if __name__ == "__main__":
-    launch_interface()
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
