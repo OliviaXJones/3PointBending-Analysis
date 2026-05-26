@@ -18,8 +18,8 @@ matplotlib.use("Agg")
 # DEFAULT CONFIGURATION & CONSTANTS
 # ===========================================================
 DEFAULT_RAW_DATA_ROOT = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia_RawTxtFiles"
-DEFAULT_TIBIA_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
-DEFAULT_FEMUR_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
+DEFAULT_TIBIA_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5_3-PointBendingTibiaMaster.xlsx"
+DEFAULT_FEMUR_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5_3-PointBendingFemurMaster.xlsx"
 DEFAULT_MEASUREMENT_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia+Femur_Measurement.xlsx"
 DEFAULT_CSV_OUTPUT_DIR = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
 
@@ -729,7 +729,7 @@ def launch_public_interface():
             if success:
                 messagebox.showinfo(
                     "Success",
-                    "All calculations finalized! Mechanical logs unified and anatomical tracking subfolders generated smoothly."
+                    "All calculations finalized!"
                 )
             else:
                 messagebox.showwarning(
