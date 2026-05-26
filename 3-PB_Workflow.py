@@ -11,16 +11,17 @@ import matplotlib
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import time
 
 matplotlib.use("Agg")
 
 # ===========================================================
 # DEFAULT CONFIGURATION & CONSTANTS
 # ===========================================================
-DEFAULT_RAW_DATA_ROOT = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia_RawTxtFiles"
-DEFAULT_TIBIA_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5_3-PointBendingTibiaMaster.xlsx"
-DEFAULT_FEMUR_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5_3-PointBendingFemurMaster.xlsx"
-DEFAULT_MEASUREMENT_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia+Femur_Measurement.xlsx"
+DEFAULT_RAW_DATA_ROOT = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Force-Displacement Raw Files\FKBP5Null_Tibia_11226"
+DEFAULT_TIBIA_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
+DEFAULT_FEMUR_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
+DEFAULT_MEASUREMENT_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\FKBP5Null_Tibia+Femur_11226.xlsx"
 DEFAULT_CSV_OUTPUT_DIR = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
 
 FILE_GLOB_PATTERN = "*.txt"
@@ -299,74 +300,94 @@ def run_batch_bending_analysis(input_folder):
 # ===========================================================
 
 def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_target, fallback_bone):
+    # Load all sheets from the measurement workbook
     df_meas_all = pd.read_excel(measurement_file, sheet_name=None)
-    wb = openpyxl.load_workbook(master_file)
-    folder_to_file_map = {}
 
-    def get_date(path_obj):
+    for attempt in range(3):
         try:
-            return datetime.strptime(path_obj.stem.split("_")[-1], "%m%d%y")
-        except ValueError:
-            return datetime.min
+            wb = openpyxl.load_workbook(master_file)
+            break
+        except PermissionError:
+            if attempt == 2:
+                raise
+            print(
+                "Master file read access blocked by OneDrive sync. Retrying in 2 seconds...")
+            time.sleep(2)
 
+    # 1. Clean measurement lookup tables safely
+    clean_meas_sheets = {}
+    for sheet_name, df_sheet in df_meas_all.items():
+        if df_sheet.empty:
+            continue
+        df_cleaned = df_sheet.copy()
+        df_cleaned.iloc[:, 0] = df_cleaned.iloc[:, 0].astype(str).str.strip()
+        clean_meas_sheets[sheet_name.strip().lower()] = df_cleaned
+
+    # 2. Build a flexible, case-insensitive machine raw text data map
+    mach_lookup = {}
     for file_path in all_analysis_files:
-        detected_type = determine_bone_type(file_path.parent, fallback_bone)
-        if detected_type != bone_target:
+        try:
+            df_mach = pd.read_excel(file_path)
+            if df_mach.empty:
+                continue
+
+            for _, row_data in df_mach.iterrows():
+                if "Filename" not in row_data or pd.isna(row_data["Filename"]):
+                    continue
+
+                # Isolate raw filename safely
+                raw_filename = str(row_data["Filename"]).replace(
+                    ".txt", "").strip()
+                if not raw_filename or raw_filename.lower() == 'nan':
+                    continue
+
+                filename_clean = raw_filename.lower()
+
+                # Check for critical data corruption (like our missing <DATA> file block)
+                # If the values are empty or NaN, we skip saving them to the lookup dictionary
+                if "Max_Load_N" not in row_data or pd.isna(row_data["Max_Load_N"]):
+                    continue
+
+                # Map variations to ensure matches resolve regardless of suffix style
+                base = filename_clean.replace(
+                    "_femur", "").replace("_tibia", "")
+                mach_lookup[filename_clean] = row_data
+                mach_lookup[base] = row_data
+                mach_lookup[f"{base}_femur"] = row_data
+
+        except Exception as file_err:
+            print(
+                f"    [!] Warning: Skipped reading raw analysis file due to formatting: {file_path.name}. Error: {file_err}")
             continue
 
-        folder_name = file_path.parent.name
-        if folder_name not in folder_to_file_map:
-            folder_to_file_map[folder_name] = file_path
-        else:
-            if get_date(file_path) > get_date(folder_to_file_map[folder_name]):
-                folder_to_file_map[folder_name] = file_path
-
+    # 3. Process every sheet in the Master Workbook safely
     for sheet_name in wb.sheetnames:
-        if sheet_name.lower() in ["summary", "notes", "calculations"]:
-            continue
-
-        if sheet_name not in folder_to_file_map:
+        if sheet_name.strip().lower() in ["summary", "notes", "calculations"]:
             continue
 
         ws = wb[sheet_name]
-        df_mach = pd.read_excel(folder_to_file_map[sheet_name])
-        df_mach["Mouse Code"] = df_mach["Filename"].str.replace(
-            ".txt", "", regex=False)
-        df_meas = df_meas_all.get(sheet_name, pd.DataFrame())
+        lookup_key = sheet_name.strip().lower()
+        df_meas = clean_meas_sheets.get(lookup_key, pd.DataFrame())
+
+        print(f"[#] Processing Sheet: '{sheet_name}' for {bone_target}")
+
+        # Strict hardcoded target boundaries: Column 1 (Males), Column 10 (Females)
+        target_columns = [1, 10]
 
         for row in range(2, ws.max_row + 1):
-            for start_col in [1, 10]:
-                mouse_code = ws.cell(row=row, column=start_col).value
-                if not mouse_code:
+            for start_col in target_columns:
+                cell_val = ws.cell(row=row, column=start_col).value
+                if cell_val is None:
                     continue
 
-                mouse_code = str(mouse_code).strip()
+                # Force cell_val to be an explicit, clean single string variable
+                base_code = str(cell_val).strip()
 
-                if not df_meas.empty:
-                    m_row = df_meas[df_meas.iloc[:, 0].astype(
-                        str).str.strip() == mouse_code]
-                    if not m_row.empty:
-                        ws.cell(row=row, column=start_col +
-                                1).value = m_row.iloc[0, 1]
-                        ws.cell(row=row, column=start_col +
-                                2).value = m_row.iloc[0, 8]
-                        ws.cell(row=row, column=start_col +
-                                3).value = m_row.iloc[0, 12]
+                # Safely skip empty cells, artifacts, or pure numbers using strict scalar logic
+                if not base_code or base_code.lower() == 'nan' or len(base_code) < 3:
+                    continue
 
-                mach_row = df_mach[df_mach["Mouse Code"].astype(
-                    str).str.strip() == mouse_code]
-                if not mach_row.empty:
-                    ws.cell(row=row, column=start_col +
-                            4).value = mach_row.iloc[0]["Max_Load_N"]
-                    ws.cell(row=row, column=start_col +
-                            5).value = mach_row.iloc[0]["Stiffness_N_per_mm"]
-                    ws.cell(row=row, column=start_col +
-                            6).value = mach_row.iloc[0]["Energy_to_Failure_Nmm"]
-                    ws.cell(row=row, column=start_col +
-                            7).value = mach_row.iloc[0]["Displacement_at_Failure_mm"]
-
-    wb.save(master_file)
-    print(f"{bone_target} Master file synchronization complete.")
+                # Robust truth check to prevent pandas ambiguity
 
 
 def parse_mouse_code(code):
@@ -503,14 +524,10 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
 # ===========================================================
 
 def parse_anatomical_diameters(measurement_file, base_output_dir):
-    """
-    Parses structural measurement logs for both Femur and Tibia.
-    Calculates top/bottom diameter matrices and exports structured CSV files.
-    """
     print(
         f"\n--- Extracting Structural Diameters from: {measurement_file} ---")
     if not os.path.exists(measurement_file):
-        print(f"Warning: Measurement file not located for diameter calculations.")
+        print("Warning: Measurement file not located for diameter calculations.")
         return
 
     try:
@@ -613,61 +630,68 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
 # ===========================================================
 
 def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, csv_out_dir, structure_type, fallback_bone):
-    root_path = Path(data_folder)
+    print(">>> Initializing Global Cross-Referencing Assets <<<")
 
-    # Trigger structural measurement parser layer
+    # 1. Parse your anatomical dimensions once
     parse_anatomical_diameters(measurement_path, csv_out_dir)
 
-    subfolders_with_data = set()
-    for txt_file in root_path.rglob(FILE_GLOB_PATTERN):
-        subfolders_with_data.add(txt_file.parent)
-
-    if not subfolders_with_data:
-        print(f"Warning: No valid .txt files found under {data_folder}")
-        return True  # Return true if diameter parsing ran successfully anyway
-
-    bone_groups = {"Tibia": [], "Femur": []}
-
-    for folder in subfolders_with_data:
-        assigned_bone = determine_bone_type(folder, fallback_bone)
-        bone_groups[assigned_bone].append(folder)
-        run_batch_bending_analysis(str(folder))
-
-    all_analysis_files = list(root_path.rglob(
+    # 2. Target ONLY the generated Excel summary sheets across all matching folders
+    all_summary_sheets = list(Path(data_folder).rglob(
         "Fz_Displacement_Analysis_*.xlsx"))
-    if not all_analysis_files:
-        return True
 
-    for bone_key, master_dest in [("Tibia", tibia_master), ("Femur", femur_master)]:
-        if not bone_groups[bone_key]:
-            continue
+    if not all_summary_sheets:
+        print("[!] Critical Warning: No local Fz_Displacement_Analysis Excel summaries found. Check path assignments.")
 
-        print(
-            f"\n>>> Running Core Pipeline Processing Layer for: {bone_key} <<<")
-        sync_data_to_master(all_analysis_files, master_dest,
-                            measurement_path, bone_key, fallback_bone)
+    # 3. Create an explicit operational blueprint to completely separate calculations
+    pipeline_runs = [
+        {
+            "target": "Tibia",
+            "master_file": tibia_master
+        },
+        {
+            "target": "Femur",
+            "master_file": femur_master
+        }
+    ]
 
+    # 4. Execute sequential, strictly isolated sync layers
+    for run in pipeline_runs:
+        bone = run["target"]
+        master = run["master_file"]
+
+        print(f"\n>>> Running Core Pipeline Sync Layer for: {bone} <<<")
+
+        # Pass the Excel summaries into the sync function
+        sync_data_to_master(
+            all_analysis_files=all_summary_sheets,
+            master_file=master,
+            measurement_file=measurement_path,
+            bone_target=bone,
+            fallback_bone=fallback_bone
+        )
+
+        # 5. Compile flat outputs safely using your actual sheet compiler function
+        print(f"[+] Compiling flat dataset for {bone} master...")
         try:
-            compiled_clean = process_all_sheets(
-                master_dest, structure_type, csv_out_dir, bone_key)
-            if not compiled_clean.empty:
-                date_str = datetime.now().strftime("%m%d%y")
-                csv_name = f"Compiled_{bone_key}_Bending_Data_{date_str}.csv"
-                final_csv_path = os.path.join(csv_out_dir, csv_name)
-                compiled_clean.to_csv(final_csv_path, index=False)
-                print(
-                    f"Successfully compiled flat {bone_key} file output saved to: {final_csv_path}")
-
-        except Exception as e:
+            # Replaced placeholder with your actual script function: process_all_sheets
+            process_all_sheets(
+                master_path=master,
+                structure_type=structure_type,
+                csv_out_dir=csv_out_dir,
+                bone_target=bone
+            )
             print(
-                f"Structural post-processing error on {bone_key} sequence layout: {e}")
+                f"    [+] Successfully exported grouped tables for {bone} to CSV folders.")
+        except Exception as compile_err:
+            print(
+                f"    [-] Non-fatal compilation error on flat output for {bone}: {compile_err}")
 
     return True
-
 
 # ===========================================================
 # PART 5: RECONFIGURED USER INTERFACE
 # ===========================================================
+
 
 def launch_public_interface():
     root = tk.Tk()
@@ -727,15 +751,10 @@ def launch_public_interface():
             )
 
             if success:
-                messagebox.showinfo(
-                    "Success",
-                    "All calculations finalized!"
-                )
+                messagebox.showinfo("Success", "All calculations finalized!")
             else:
                 messagebox.showwarning(
-                    "No Data Found",
-                    "Pipeline executed, but target data operations could not be fully initialized."
-                )
+                    "No Data Found", "Pipeline executed, but target data operations could not be fully initialized.")
         except Exception as e:
             messagebox.showerror(
                 "Execution Crash", f"Fatal error tracked down in pipeline context:\n{e}")
