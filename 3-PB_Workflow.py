@@ -4,25 +4,32 @@ import glob
 from io import StringIO
 from datetime import datetime
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import openpyxl
 import matplotlib
 import matplotlib.pyplot as plt
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-import time
+
+# PyQt6 UI Imports
+from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QLineEdit,
+    QPushButton, QComboBox, QFileDialog, QMessageBox,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QFrame
+)
 
 matplotlib.use("Agg")
 
 # ===========================================================
 # DEFAULT CONFIGURATION & CONSTANTS
 # ===========================================================
-DEFAULT_RAW_DATA_ROOT = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Force-Displacement Raw Files\FKBP5Null_Tibia_11226"
-DEFAULT_TIBIA_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
-DEFAULT_FEMUR_MASTER_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
-DEFAULT_MEASUREMENT_FILE = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\Measurement Files\FKBP5Null_Tibia+Femur_11226.xlsx"
-DEFAULT_CSV_OUTPUT_DIR = r"C:\Users\olivi\OneDrive - Medical University of South Carolina\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
+DEFAULT_RAW_DATA_ROOT = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia_11226"
+DEFAULT_TIBIA_MASTER_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
+DEFAULT_FEMUR_MASTER_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
+DEFAULT_MEASUREMENT_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia+Femur_11226.xlsx"
+DEFAULT_CSV_OUTPUT_DIR = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
 
 FILE_GLOB_PATTERN = "*.txt"
 SAVE_PNG_DPI = 100
@@ -112,25 +119,33 @@ def dominant_linear_region(x, y, window=30, min_r2=0.995):
 
 
 def determine_bone_type(folder_path, fallback_bone):
-    folder_name_lower = os.path.basename(folder_path).lower()
+    txt_files = glob.glob(os.path.join(folder_path, FILE_GLOB_PATTERN))
+    femur_count = 0
+    tibia_count = 0
 
-    if "femur" in folder_name_lower:
+    for f in txt_files:
+        name_lower = os.path.basename(f).lower()
+        if "femur" in name_lower:
+            femur_count += 1
+        elif "tibia" in name_lower:
+            tibia_count += 1
+
+    if femur_count > 0 and femur_count >= tibia_count:
         return "Femur"
-    if "tibia" in folder_name_lower:
+    if tibia_count > 0 and tibia_count > femur_count:
         return "Tibia"
 
-    txt_files = glob.glob(os.path.join(folder_path, FILE_GLOB_PATTERN))
-    for f in txt_files:
-        if "femur" in os.path.basename(f).lower():
-            return "Femur"
-        if "tibia" in os.path.basename(f).lower():
-            return "Tibia"
+    full_path_lower = str(folder_path).lower()
+    if "femur" in full_path_lower:
+        return "Femur"
+    if "tibia" in full_path_lower:
+        return "Tibia"
 
     return fallback_bone
 
 
 def run_batch_bending_analysis(input_folder):
-    print(f"\n--- Processing Raw Data in Folder: {input_folder} ---")
+    print(f"\nProcessing Raw Data in Folder: {input_folder}")
     date_str = datetime.now().strftime("%m%d%y")
 
     plot_folder = os.path.join(input_folder, "Fz_Displacement_Analysis")
@@ -234,6 +249,7 @@ def run_batch_bending_analysis(input_folder):
                     window=LINEAR_WINDOW_POINTS,
                 )
 
+            # Fix for numpy 2.0 trapezoid update
             if hasattr(np, 'trapezoid'):
                 energy = np.trapezoid(
                     load[start_idx: fail_idx + 1], adj_disp[start_idx: fail_idx + 1])
@@ -299,100 +315,130 @@ def run_batch_bending_analysis(input_folder):
 # PART 2: MASTER MERGING & EXPORT FUNCTIONS
 # ===========================================================
 
-def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_target, fallback_bone):
-    # Load all sheets from the measurement workbook
+def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_target, fallback_bone, structure_type):
     df_meas_all = pd.read_excel(measurement_file, sheet_name=None)
 
-    for attempt in range(3):
+    try:
+        wb = openpyxl.load_workbook(master_file)
+    except Exception as e:
+        print(f"Warning: Could not open {master_file}. Check path.")
+        return
+
+    # Combine ALL Fz_Displacement analysis files into one master dataframe
+    # to avoid missing data from folder name mismatches
+    all_mach_dfs = []
+    for f in all_analysis_files:
         try:
-            wb = openpyxl.load_workbook(master_file)
-            break
-        except PermissionError:
-            if attempt == 2:
-                raise
-            print(
-                "Master file read access blocked by OneDrive sync. Retrying in 2 seconds...")
-            time.sleep(2)
+            all_mach_dfs.append(pd.read_excel(f))
+        except Exception:
+            pass
 
-    # 1. Clean measurement lookup tables safely
-    clean_meas_sheets = {}
-    for sheet_name, df_sheet in df_meas_all.items():
-        if df_sheet.empty:
-            continue
-        df_cleaned = df_sheet.copy()
-        df_cleaned.iloc[:, 0] = df_cleaned.iloc[:, 0].astype(str).str.strip()
-        clean_meas_sheets[sheet_name.strip().lower()] = df_cleaned
+    df_mach_all = pd.concat(
+        all_mach_dfs, ignore_index=True) if all_mach_dfs else pd.DataFrame()
 
-    # 2. Build a flexible, case-insensitive machine raw text data map
-    mach_lookup = {}
-    for file_path in all_analysis_files:
-        try:
-            df_mach = pd.read_excel(file_path)
-            if df_mach.empty:
-                continue
+    if not df_mach_all.empty:
+        # Extract exact base mouse code (e.g. 2W.4.M1) for strict matching
+        df_mach_all["Base_Code"] = df_mach_all["Filename"].str.replace(
+            ".txt", "", regex=False).str.split('_').str[0].str.upper().str.strip()
 
-            for _, row_data in df_mach.iterrows():
-                if "Filename" not in row_data or pd.isna(row_data["Filename"]):
-                    continue
+    target_columns = [
+        1, 10] if structure_type == "Split Genders (Male/Female)" else [1]
 
-                # Isolate raw filename safely
-                raw_filename = str(row_data["Filename"]).replace(
-                    ".txt", "").strip()
-                if not raw_filename or raw_filename.lower() == 'nan':
-                    continue
-
-                filename_clean = raw_filename.lower()
-
-                # Check for critical data corruption (like our missing <DATA> file block)
-                # If the values are empty or NaN, we skip saving them to the lookup dictionary
-                if "Max_Load_N" not in row_data or pd.isna(row_data["Max_Load_N"]):
-                    continue
-
-                # Map variations to ensure matches resolve regardless of suffix style
-                base = filename_clean.replace(
-                    "_femur", "").replace("_tibia", "")
-                mach_lookup[filename_clean] = row_data
-                mach_lookup[base] = row_data
-                mach_lookup[f"{base}_femur"] = row_data
-
-        except Exception as file_err:
-            print(
-                f"    [!] Warning: Skipped reading raw analysis file due to formatting: {file_path.name}. Error: {file_err}")
-            continue
-
-    # 3. Process every sheet in the Master Workbook safely
     for sheet_name in wb.sheetnames:
-        if sheet_name.strip().lower() in ["summary", "notes", "calculations"]:
+        if sheet_name.lower() in ["summary", "notes", "calculations"]:
             continue
 
         ws = wb[sheet_name]
-        lookup_key = sheet_name.strip().lower()
-        df_meas = clean_meas_sheets.get(lookup_key, pd.DataFrame())
+        df_meas = df_meas_all.get(sheet_name, pd.DataFrame())
 
-        print(f"[#] Processing Sheet: '{sheet_name}' for {bone_target}")
-
-        # Strict hardcoded target boundaries: Column 1 (Males), Column 10 (Females)
-        target_columns = [1, 10]
+        if not df_meas.empty:
+            df_meas["Base_Code"] = df_meas.iloc[:, 0].astype(
+                str).str.split('_').str[0].str.upper().str.strip()
 
         for row in range(2, ws.max_row + 1):
             for start_col in target_columns:
-                cell_val = ws.cell(row=row, column=start_col).value
-                if cell_val is None:
+                mouse_code = ws.cell(row=row, column=start_col).value
+                if not mouse_code:
                     continue
 
-                # Force cell_val to be an explicit, clean single string variable
-                base_code = str(cell_val).strip()
+                base_master_code = str(mouse_code).strip().split('_')[
+                    0].upper()
 
-                # Safely skip empty cells, artifacts, or pure numbers using strict scalar logic
-                if not base_code or base_code.lower() == 'nan' or len(base_code) < 3:
-                    continue
+                # ==========================================
+                # 1. Sync Dimensions from Measurement File
+                # ==========================================
+                if not df_meas.empty:
+                    # Find all rows matching the base code exactly
+                    meas_mask = (df_meas["Base_Code"] == base_master_code)
+                    potential_meas = df_meas[meas_mask]
 
-                # Robust truth check to prevent pandas ambiguity
+                    m_row = pd.DataFrame()
+                    if bone_target == "Femur":
+                        # Strictly enforce that Femur measurements explicitly contain "FEMUR"
+                        m_row = potential_meas[potential_meas.iloc[:, 0].astype(
+                            str).str.upper().str.contains("FEMUR")]
+                    else:
+                        # Tibia: Check for explicit "TIBIA" first, otherwise exclude "FEMUR"
+                        tibia_explicit = potential_meas[potential_meas.iloc[:, 0].astype(
+                            str).str.upper().str.contains("TIBIA")]
+                        if not tibia_explicit.empty:
+                            m_row = tibia_explicit
+                        else:
+                            m_row = potential_meas[~potential_meas.iloc[:, 0].astype(
+                                str).str.upper().str.contains("FEMUR")]
+
+                    if not m_row.empty:
+                        ws.cell(row=row, column=start_col +
+                                1).value = m_row.iloc[0, 1]  # Col B
+                        ws.cell(row=row, column=start_col +
+                                2).value = m_row.iloc[0, 8]  # Col I
+                        ws.cell(row=row, column=start_col +
+                                3).value = m_row.iloc[0, 12]  # Col M
+
+                # ==========================================
+                # 2. Sync Mechanical Properties from txt logs
+                # ==========================================
+                if not df_mach_all.empty:
+                    # Find all log data matching the exact base code
+                    mach_mask = (df_mach_all["Base_Code"] == base_master_code)
+                    potential_mach = df_mach_all[mach_mask]
+
+                    mach_row = pd.DataFrame()
+                    if bone_target == "Femur":
+                        # Strictly enforce that Femur txt filenames explicitly contain "FEMUR"
+                        mach_row = potential_mach[potential_mach["Filename"].str.upper(
+                        ).str.contains("FEMUR")]
+                    else:
+                        tibia_explicit = potential_mach[potential_mach["Filename"].str.upper(
+                        ).str.contains("TIBIA")]
+                        if not tibia_explicit.empty:
+                            mach_row = tibia_explicit
+                        else:
+                            mach_row = potential_mach[~potential_mach["Filename"].str.upper(
+                            ).str.contains("FEMUR")]
+
+                    if not mach_row.empty:
+                        ws.cell(row=row, column=start_col +
+                                4).value = mach_row.iloc[0]["Max_Load_N"]
+                        ws.cell(row=row, column=start_col +
+                                5).value = mach_row.iloc[0]["Stiffness_N_per_mm"]
+                        ws.cell(row=row, column=start_col +
+                                6).value = mach_row.iloc[0]["Energy_to_Failure_Nmm"]
+                        ws.cell(row=row, column=start_col +
+                                7).value = mach_row.iloc[0]["Displacement_at_Failure_mm"]
+
+    try:
+        wb.save(master_file)
+        print(f"{bone_target} Master file synchronization complete.")
+    except PermissionError:
+        raise PermissionError(
+            f"Cannot save {master_file}. Please close it in Excel first.")
 
 
 def parse_mouse_code(code):
     try:
-        parts = str(code).split('.')
+        clean_code = str(code).split('_')[0].strip()
+        parts = clean_code.split('.')
         genotype = parts[0]
         age = parts[1]
         sex_id = parts[2]
@@ -520,14 +566,12 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
 
 
 # ===========================================================
-# PART 3: NEW ANATOMICAL DIAMETER PARSING LAYER
+# PART 3: ANATOMICAL DIAMETER PARSING
 # ===========================================================
 
 def parse_anatomical_diameters(measurement_file, base_output_dir):
-    print(
-        f"\n--- Extracting Structural Diameters from: {measurement_file} ---")
+    print(f"\nExtracting Structural Diameters from: {measurement_file}")
     if not os.path.exists(measurement_file):
-        print("Warning: Measurement file not located for diameter calculations.")
         return
 
     try:
@@ -613,16 +657,15 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
                             for i, gen in enumerate(sort_priority):
                                 if col_name.startswith(gen):
                                     return (i, col_name)
-                            return (99, col_name)
+                                return (99, col_name)
 
                         sorted_cols = sorted(table.columns, key=lineage_sort)
                         table = table[sorted_cols]
                         file_name = f"{sex}_{age}Wks_{file_label}.csv"
                         table.to_csv(os.path.join(target_folder, file_name))
 
-        print("Anatomical diameter matrices generated and exported.")
     except Exception as e:
-        print(f"Error encountered during anatomical diameter parsing: {e}")
+        print(f"Error parsing diameters: {e}")
 
 
 # ===========================================================
@@ -630,182 +673,241 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
 # ===========================================================
 
 def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, csv_out_dir, structure_type, fallback_bone):
-    print(">>> Initializing Global Cross-Referencing Assets <<<")
-
-    # 1. Parse your anatomical dimensions once
+    root_path = Path(os.path.normpath(data_folder))
     parse_anatomical_diameters(measurement_path, csv_out_dir)
 
-    # 2. Target ONLY the generated Excel summary sheets across all matching folders
-    all_summary_sheets = list(Path(data_folder).rglob(
+    subfolders_with_data = set()
+    for txt_file in root_path.rglob(FILE_GLOB_PATTERN):
+        subfolders_with_data.add(txt_file.parent)
+
+    if not subfolders_with_data:
+        raise FileNotFoundError(
+            f"No text files matching '{FILE_GLOB_PATTERN}' found in subfolders of {data_folder}")
+
+    bone_groups = {"Tibia": [], "Femur": []}
+
+    for folder in subfolders_with_data:
+        assigned_bone = determine_bone_type(folder, fallback_bone)
+        bone_groups[assigned_bone].append(folder)
+        run_batch_bending_analysis(str(folder))
+
+    all_analysis_files = list(root_path.rglob(
         "Fz_Displacement_Analysis_*.xlsx"))
 
-    if not all_summary_sheets:
-        print("[!] Critical Warning: No local Fz_Displacement_Analysis Excel summaries found. Check path assignments.")
+    if not all_analysis_files:
+        raise FileNotFoundError(
+            "Batch analysis failed to generate Excel summary files.")
 
-    # 3. Create an explicit operational blueprint to completely separate calculations
-    pipeline_runs = [
-        {
-            "target": "Tibia",
-            "master_file": tibia_master
-        },
-        {
-            "target": "Femur",
-            "master_file": femur_master
-        }
-    ]
+    for bone_key, master_dest in [("Tibia", tibia_master), ("Femur", femur_master)]:
+        if not bone_groups[bone_key]:
+            continue
 
-    # 4. Execute sequential, strictly isolated sync layers
-    for run in pipeline_runs:
-        bone = run["target"]
-        master = run["master_file"]
+        sync_data_to_master(all_analysis_files, master_dest,
+                            measurement_path, bone_key, fallback_bone, structure_type)
 
-        print(f"\n>>> Running Core Pipeline Sync Layer for: {bone} <<<")
-
-        # Pass the Excel summaries into the sync function
-        sync_data_to_master(
-            all_analysis_files=all_summary_sheets,
-            master_file=master,
-            measurement_file=measurement_path,
-            bone_target=bone,
-            fallback_bone=fallback_bone
-        )
-
-        # 5. Compile flat outputs safely using your actual sheet compiler function
-        print(f"[+] Compiling flat dataset for {bone} master...")
         try:
-            # Replaced placeholder with your actual script function: process_all_sheets
-            process_all_sheets(
-                master_path=master,
-                structure_type=structure_type,
-                csv_out_dir=csv_out_dir,
-                bone_target=bone
-            )
-            print(
-                f"    [+] Successfully exported grouped tables for {bone} to CSV folders.")
-        except Exception as compile_err:
-            print(
-                f"    [-] Non-fatal compilation error on flat output for {bone}: {compile_err}")
+            compiled_clean = process_all_sheets(
+                master_dest, structure_type, csv_out_dir, bone_key)
+            if not compiled_clean.empty:
+                date_str = datetime.now().strftime("%m%d%y")
+                csv_name = f"Compiled_{bone_key}_Bending_Data_{date_str}.csv"
+                final_csv_path = os.path.join(csv_out_dir, csv_name)
+                compiled_clean.to_csv(final_csv_path, index=False)
+        except Exception as e:
+            print(f"Post-processing error on {bone_key}: {e}")
 
     return True
 
+
 # ===========================================================
-# PART 5: RECONFIGURED USER INTERFACE
+# PART 5: PyQt6 USER INTERFACE APPLICATION
 # ===========================================================
 
+class BiomechanicalPipelineApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("3-Point Bending Analysis")
+        self.resize(750, 480)
 
-def launch_public_interface():
-    root = tk.Tk()
-    root.title("Biomechanical Bending Analysis Pipeline")
-    root.geometry("700x500")
-    root.resizable(False, False)
+        self.setStyleSheet("""
+            QMainWindow { background-color: #F3F4F6; }
+            QLabel { color: #1F2937; font-size: 12px; }
+            QLineEdit { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 4px; padding: 4px; color: #1F2937; }
+            QLineEdit:focus { border: 1px solid #3B82F6; }
+            QPushButton { background-color: #E5E7EB; border: 1px solid #9CA3AF; border-radius: 4px; padding: 5px 12px; color: #1F2937; font-weight: 500; }
+            QPushButton:hover { background-color: #D1D5DB; }
+            QComboBox { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 4px; padding: 4px; color: #1F2937; }
+            
+            QComboBox QAbstractItemView { 
+                background-color: #FFFFFF; 
+                color: #1F2937; 
+                selection-background-color: #E5E7EB;
+                selection-color: #1F2937;
+                outline: none;
+            }
+        """)
 
-    path_raw = tk.StringVar(value=DEFAULT_RAW_DATA_ROOT)
-    path_tibia_master = tk.StringVar(value=DEFAULT_TIBIA_MASTER_FILE)
-    path_femur_master = tk.StringVar(value=DEFAULT_FEMUR_MASTER_FILE)
-    path_meas = tk.StringVar(value=DEFAULT_MEASUREMENT_FILE)
-    path_csv = tk.StringVar(value=DEFAULT_CSV_OUTPUT_DIR)
-    structure_option = tk.StringVar(value="Single Table")
-    fallback_bone_option = tk.StringVar(value="Tibia")
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(12)
 
-    def browse_raw():
-        f = filedialog.askdirectory(title="Choose Raw Data Root")
-        if f:
-            path_raw.set(f)
+        title_frame = QFrame()
+        title_frame.setStyleSheet(
+            "background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 6px;")
+        title_layout = QVBoxLayout(title_frame)
+        title_label = QLabel("3-Point Bending Workflow")
+        title_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        title_label.setStyleSheet("color: #111827; border: none;")
+        subtitle_label = QLabel(
+            "Calculates mechanical parameters and syncs them directly into multi-group master configurations.")
+        subtitle_label.setStyleSheet("color: #6B7280; border: none;")
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(subtitle_label)
+        main_layout.addWidget(title_frame)
 
-    def browse_tibia_master():
-        f = filedialog.askopenfilename(
-            title="Select Tibia Master Excel File", filetypes=[("Excel Files", "*.xlsx")])
-        if f:
-            path_tibia_master.set(f)
+        form_frame = QFrame()
+        form_frame.setStyleSheet(
+            "background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 6px;")
+        grid_layout = QGridLayout(form_frame)
+        grid_layout.setContentsMargins(12, 12, 12, 12)
+        grid_layout.setVerticalSpacing(10)
+        grid_layout.setHorizontalSpacing(8)
 
-    def browse_femur_master():
-        f = filedialog.askopenfilename(
-            title="Select Femur Master Excel File", filetypes=[("Excel Files", "*.xlsx")])
-        if f:
-            path_femur_master.set(f)
+        self.input_fields = {}
 
-    def browse_meas():
-        f = filedialog.askopenfilename(title="Select Bone Measurement File", filetypes=[
-                                       ("Excel Files", "*.xlsx")])
-        if f:
-            path_meas.set(f)
+        paths_config = [
+            ("raw", "Raw Data Folder:", DEFAULT_RAW_DATA_ROOT, True),
+            ("tibia", "Tibia Master Excel File:",
+             DEFAULT_TIBIA_MASTER_FILE, False),
+            ("femur", "Femur Master Excel File:",
+             DEFAULT_FEMUR_MASTER_FILE, False),
+            ("meas", "Measurements File:", DEFAULT_MEASUREMENT_FILE, False),
+            ("csv", "CSV Export Folder:", DEFAULT_CSV_OUTPUT_DIR, True)
+        ]
 
-    def browse_csv():
-        f = filedialog.askdirectory(title="Select Folder to Export Final Data")
-        if f:
-            path_csv.set(f)
+        for idx, (key, label_text, default_val, is_dir) in enumerate(paths_config):
+            lbl = QLabel(label_text)
+            lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+            edit = QLineEdit(os.path.normpath(default_val))
+            btn = QPushButton("Browse")
+            btn.clicked.connect(lambda checked, k=key,
+                                d=is_dir: self.browse_path(k, d))
 
-    def run_pipeline():
-        root.title("Processing Split Bone Pipelines... Please wait.")
-        root.update()
+            grid_layout.addWidget(lbl, idx, 0)
+            grid_layout.addWidget(edit, idx, 1)
+            grid_layout.addWidget(btn, idx, 2)
+            self.input_fields[key] = edit
+
+        dropdown_row_idx = len(paths_config)
+
+        arch_lbl = QLabel("Spreadsheet Architecture")
+        arch_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+        self.structure_dropdown = QComboBox(self)
+        self.structure_dropdown.addItems(
+            ["Single Table", "Split Genders (Male/Female)"])
+        grid_layout.addWidget(arch_lbl, dropdown_row_idx, 0)
+        grid_layout.addWidget(self.structure_dropdown,
+                              dropdown_row_idx, 1, 1, 2)
+
+        fallback_row_idx = dropdown_row_idx + 1
+        fallback_lbl = QLabel("Default Bone Fallback")
+        fallback_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+        self.fallback_dropdown = QComboBox(self)
+        self.fallback_dropdown.addItems(["Tibia", "Femur"])
+        grid_layout.addWidget(fallback_lbl, fallback_row_idx, 0)
+        grid_layout.addWidget(self.fallback_dropdown,
+                              fallback_row_idx, 1, 1, 2)
+
+        main_layout.addWidget(form_frame)
+
+        action_layout = QHBoxLayout()
+        self.run_button = QPushButton("Execute Workflow")
+        self.run_button.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self.run_button.setStyleSheet("""
+            QPushButton { background-color: #2563EB; border: 1px solid #1D4ED8; color: #FFFFFF; padding: 8px 24px; border-radius: 4px; }
+            QPushButton:hover { background-color: #1D4ED8; }
+            QPushButton:disabled { background-color: #9CA3AF; border: 1px solid #D1D5DB; }
+        """)
+        self.run_button.clicked.connect(self.run_pipeline)
+        action_layout.addStretch()
+        action_layout.addWidget(self.run_button)
+        main_layout.addLayout(action_layout)
+
+    def browse_path(self, key, is_directory):
+        current_text = self.input_fields[key].text()
+        if is_directory:
+            dir_path = QFileDialog.getExistingDirectory(
+                self, "Select Directory", current_text)
+            if dir_path:
+                self.input_fields[key].setText(os.path.normpath(dir_path))
+        else:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Excel File", current_text, "Excel Files (*.xlsx *.xls)"
+            )
+            if file_path:
+                self.input_fields[key].setText(os.path.normpath(file_path))
+
+    def run_pipeline(self):
+        self.run_button.setEnabled(False)
+        self.run_button.setText("Processing Data...")
+        QApplication.processEvents()
 
         try:
+            raw_folder = self.input_fields["raw"].text()
+            tibia_path = self.input_fields["tibia"].text()
+            femur_path = self.input_fields["femur"].text()
+            meas_path = self.input_fields["meas"].text()
+            csv_dir = self.input_fields["csv"].text()
+
+            structure_type = self.structure_dropdown.currentText()
+            fallback_bone = self.fallback_dropdown.currentText()
+
             success = execute_pipeline(
-                data_folder=path_raw.get(),
-                tibia_master=path_tibia_master.get(),
-                femur_master=path_femur_master.get(),
-                measurement_path=path_meas.get(),
-                csv_out_dir=path_csv.get(),
-                structure_type=structure_option.get(),
-                fallback_bone=fallback_bone_option.get()
+                data_folder=raw_folder,
+                tibia_master=tibia_path,
+                femur_master=femur_path,
+                measurement_path=meas_path,
+                csv_out_dir=csv_dir,
+                structure_type=structure_type,
+                fallback_bone=fallback_bone
             )
 
             if success:
-                messagebox.showinfo("Success", "All calculations finalized!")
-            else:
-                messagebox.showwarning(
-                    "No Data Found", "Pipeline executed, but target data operations could not be fully initialized.")
+                # Updated Success Window Styling
+                success_msg = QMessageBox(self)
+                success_msg.setIcon(QMessageBox.Icon.Information)
+                success_msg.setWindowTitle("Success")
+                success_msg.setText("All calculations finalized!")
+                success_msg.setInformativeText(
+                    "Mechanical logs unified and Master data tables successfully synced.")
+                success_msg.setStyleSheet("""
+                    QMessageBox { background-color: #ffffff; }
+                    QLabel { color: #000000; }
+                    QPushButton { background-color: #f0f0f0; color: #000000; }
+                """)
+                success_msg.exec()
+
         except Exception as e:
-            messagebox.showerror(
-                "Execution Crash", f"Fatal error tracked down in pipeline context:\n{e}")
+            error_msg = QMessageBox(self)
+            error_msg.setIcon(QMessageBox.Icon.Critical)
+            error_msg.setWindowTitle("Error")
+            error_msg.setText("An error occurred during execution:")
+            error_msg.setInformativeText(str(e))
+            error_msg.setStyleSheet("""
+                QMessageBox { background-color: #ffffff; }
+                QLabel { color: #000000; }
+                QPushButton { background-color: #f0f0f0; color: #000000; }
+            """)
+            error_msg.exec()
         finally:
-            root.title("Biomechanical Bending Analysis Pipeline")
-
-    tk.Label(root, text="Bending Analysis System Parameters",
-             font=("Arial", 13, "bold")).pack(pady=10)
-
-    fields_frame = tk.Frame(root)
-    fields_frame.pack(fill="both", expand=True, padx=25)
-
-    def add_ui_row(label_text, variable, command):
-        row = tk.Frame(fields_frame)
-        row.pack(fill="x", pady=4)
-        tk.Label(row, text=label_text, width=24, anchor="w").pack(side="left")
-        tk.Entry(row, textvariable=variable,
-                 width=48).pack(side="left", padx=5)
-        tk.Button(row, text="Browse...", command=command).pack(side="left")
-
-    add_ui_row("Raw Data Folder:", path_raw, browse_raw)
-    add_ui_row("Tibia Master Excel File:",
-               path_tibia_master, browse_tibia_master)
-    add_ui_row("Femur Master Excel File:",
-               path_femur_master, browse_femur_master)
-    add_ui_row("Measurements File:", path_meas, browse_meas)
-    add_ui_row("CSV Export Folder:", path_csv, browse_csv)
-
-    layout_row = tk.Frame(fields_frame)
-    layout_row.pack(fill="x", pady=5)
-    tk.Label(layout_row, text="Spreadsheet Architecture:",
-             width=24, anchor="w").pack(side="left")
-    options = ["Single Table", "Split Genders (Male/Female)"]
-    dropdown = ttk.Combobox(layout_row, textvariable=structure_option,
-                            values=options, state="readonly", width=28)
-    dropdown.pack(side="left", padx=5)
-
-    fallback_row = tk.Frame(fields_frame)
-    fallback_row.pack(fill="x", pady=5)
-    tk.Label(fallback_row, text="Default Bone Fallback:",
-             width=24, anchor="w").pack(side="left")
-    bone_options = ["Tibia", "Femur"]
-    fallback_dropdown = ttk.Combobox(
-        fallback_row, textvariable=fallback_bone_option, values=bone_options, state="readonly", width=28)
-    fallback_dropdown.pack(side="left", padx=5)
-
-    tk.Button(root, text="Execute Workflow", bg="#2E7D32", fg="white", font=(
-        "Arial", 11, "bold"), padx=30, pady=8, command=run_pipeline).pack(pady=15)
-
-    root.mainloop()
+            self.run_button.setEnabled(True)
+            self.run_button.setText("Execute Workflow")
 
 
 if __name__ == "__main__":
-    launch_public_interface()
+    app = QApplication(sys.argv)
+    window = BiomechanicalPipelineApp()
+    window.show()
+    sys.exit(app.exec())
