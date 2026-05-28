@@ -479,6 +479,9 @@ def generate_grouped_tables(df, base_dir, bone_target):
         active_metrics = [m for m in fallback_metrics if m in df.columns]
 
     for metric in active_metrics:
+        df[metric] = pd.to_numeric(df[metric], errors='coerce')
+
+    for metric in active_metrics:
         for age in unique_ages:
             for sex in ['Male', 'Female']:
                 base_subset = df[(df['Sex_Extracted'] == sex) & (
@@ -806,7 +809,7 @@ class BiomechanicalPipelineApp(QMainWindow):
         arch_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
         self.structure_dropdown = QComboBox(self)
         self.structure_dropdown.addItems(
-            ["Single Table", "Split Genders (Male/Female)"])
+            ["Single Table", "FKBP5 Study"])
         grid_layout.addWidget(arch_lbl, dropdown_row_idx, 0)
         grid_layout.addWidget(self.structure_dropdown,
                               dropdown_row_idx, 1, 1, 2)
