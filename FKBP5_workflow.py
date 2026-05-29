@@ -11,15 +11,6 @@ import openpyxl
 import matplotlib
 import matplotlib.pyplot as plt
 
-# PyQt6 UI Imports
-from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QLineEdit,
-    QPushButton, QComboBox, QFileDialog, QMessageBox,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QFrame
-)
-
 matplotlib.use("Agg")
 
 # ===========================================================
@@ -249,7 +240,6 @@ def run_batch_bending_analysis(input_folder):
                     window=LINEAR_WINDOW_POINTS,
                 )
 
-            # Fix for numpy 2.0 trapezoid update
             if hasattr(np, 'trapezoid'):
                 energy = np.trapezoid(
                     load[start_idx: fail_idx + 1], adj_disp[start_idx: fail_idx + 1])
@@ -324,8 +314,6 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
         print(f"Warning: Could not open {master_file}. Check path.")
         return
 
-    # Combine ALL Fz_Displacement analysis files into one master dataframe
-    # to avoid missing data from folder name mismatches
     all_mach_dfs = []
     for f in all_analysis_files:
         try:
@@ -337,7 +325,6 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
         all_mach_dfs, ignore_index=True) if all_mach_dfs else pd.DataFrame()
 
     if not df_mach_all.empty:
-        # Extract exact base mouse code (e.g. 2W.4.M1) for strict matching
         df_mach_all["Base_Code"] = df_mach_all["Filename"].str.replace(
             ".txt", "", regex=False).str.split('_').str[0].str.upper().str.strip()
 
@@ -364,21 +351,15 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                 base_master_code = str(mouse_code).strip().split('_')[
                     0].upper()
 
-                # ==========================================
-                # 1. Sync Dimensions from Measurement File
-                # ==========================================
                 if not df_meas.empty:
-                    # Find all rows matching the base code exactly
                     meas_mask = (df_meas["Base_Code"] == base_master_code)
                     potential_meas = df_meas[meas_mask]
 
                     m_row = pd.DataFrame()
                     if bone_target == "Femur":
-                        # Strictly enforce that Femur measurements explicitly contain "FEMUR"
                         m_row = potential_meas[potential_meas.iloc[:, 0].astype(
                             str).str.upper().str.contains("FEMUR")]
                     else:
-                        # Tibia: Check for explicit "TIBIA" first, otherwise exclude "FEMUR"
                         tibia_explicit = potential_meas[potential_meas.iloc[:, 0].astype(
                             str).str.upper().str.contains("TIBIA")]
                         if not tibia_explicit.empty:
@@ -389,23 +370,18 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
 
                     if not m_row.empty:
                         ws.cell(row=row, column=start_col +
-                                1).value = m_row.iloc[0, 1]  # Col B
+                                1).value = m_row.iloc[0, 1]
                         ws.cell(row=row, column=start_col +
-                                2).value = m_row.iloc[0, 8]  # Col I
+                                2).value = m_row.iloc[0, 8]
                         ws.cell(row=row, column=start_col +
-                                3).value = m_row.iloc[0, 12]  # Col M
+                                3).value = m_row.iloc[0, 12]
 
-                # ==========================================
-                # 2. Sync Mechanical Properties from txt logs
-                # ==========================================
                 if not df_mach_all.empty:
-                    # Find all log data matching the exact base code
                     mach_mask = (df_mach_all["Base_Code"] == base_master_code)
                     potential_mach = df_mach_all[mach_mask]
 
                     mach_row = pd.DataFrame()
                     if bone_target == "Femur":
-                        # Strictly enforce that Femur txt filenames explicitly contain "FEMUR"
                         mach_row = potential_mach[potential_mach["Filename"].str.upper(
                         ).str.contains("FEMUR")]
                     else:
@@ -723,194 +699,34 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
 
 
 # ===========================================================
-# PART 5: PyQt6 USER INTERFACE APPLICATION
+# PART 5: DASHBOARD INTEGRATION LAYER
 # ===========================================================
 
-class BiomechanicalPipelineApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("3-Point Bending Analysis")
-        self.resize(750, 480)
+def run_workflow(inputs):
+    """
+    Entry point for the Main Dashboard to execute the FKBP5 specific pipeline.
+    Expects a dictionary with the necessary file paths and parameters.
+    """
+    # Extract variables from the dictionary provided by the Hub
+    raw_folder = inputs.get('data_folder')
+    tibia_path = inputs.get('tibia_master')
+    femur_path = inputs.get('femur_master')
+    meas_path = inputs.get('measurement_path')
+    csv_dir = inputs.get('csv_out_dir')
+    structure_type = inputs.get('structure_type')
+    fallback_bone = inputs.get('fallback_bone')
 
-        self.setStyleSheet("""
-            QMainWindow { background-color: #F3F4F6; }
-            QLabel { color: #1F2937; font-size: 12px; }
-            QLineEdit { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 4px; padding: 4px; color: #1F2937; }
-            QLineEdit:focus { border: 1px solid #3B82F6; }
-            QPushButton { background-color: #E5E7EB; border: 1px solid #9CA3AF; border-radius: 4px; padding: 5px 12px; color: #1F2937; font-weight: 500; }
-            QPushButton:hover { background-color: #D1D5DB; }
-            QComboBox { background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 4px; padding: 4px; color: #1F2937; }
-            
-            QComboBox QAbstractItemView { 
-                background-color: #FFFFFF; 
-                color: #1F2937; 
-                selection-background-color: #E5E7EB;
-                selection-color: #1F2937;
-                outline: none;
-            }
-        """)
+    print(f"Starting FKBP5 Workflow for: {raw_folder}")
 
-        central_widget = QWidget(self)
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(12)
+    # Call the existing execution pipeline
+    success = execute_pipeline(
+        data_folder=raw_folder,
+        tibia_master=tibia_path,
+        femur_master=femur_path,
+        measurement_path=meas_path,
+        csv_out_dir=csv_dir,
+        structure_type=structure_type,
+        fallback_bone=fallback_bone
+    )
 
-        title_frame = QFrame()
-        title_frame.setStyleSheet(
-            "background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 6px;")
-        title_layout = QVBoxLayout(title_frame)
-        title_label = QLabel("3-Point Bending Workflow")
-        title_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        title_label.setStyleSheet("color: #111827; border: none;")
-        subtitle_label = QLabel(
-            "Calculates mechanical parameters and syncs them directly into multi-group master configurations.")
-        subtitle_label.setStyleSheet("color: #6B7280; border: none;")
-        title_layout.addWidget(title_label)
-        title_layout.addWidget(subtitle_label)
-        main_layout.addWidget(title_frame)
-
-        form_frame = QFrame()
-        form_frame.setStyleSheet(
-            "background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 6px;")
-        grid_layout = QGridLayout(form_frame)
-        grid_layout.setContentsMargins(12, 12, 12, 12)
-        grid_layout.setVerticalSpacing(10)
-        grid_layout.setHorizontalSpacing(8)
-
-        self.input_fields = {}
-
-        paths_config = [
-            ("raw", "Raw Data Folder:", DEFAULT_RAW_DATA_ROOT, True),
-            ("tibia", "Tibia Master Excel File:",
-             DEFAULT_TIBIA_MASTER_FILE, False),
-            ("femur", "Femur Master Excel File:",
-             DEFAULT_FEMUR_MASTER_FILE, False),
-            ("meas", "Measurements File:", DEFAULT_MEASUREMENT_FILE, False),
-            ("csv", "CSV Export Folder:", DEFAULT_CSV_OUTPUT_DIR, True)
-        ]
-
-        for idx, (key, label_text, default_val, is_dir) in enumerate(paths_config):
-            lbl = QLabel(label_text)
-            lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
-            edit = QLineEdit(os.path.normpath(default_val))
-            btn = QPushButton("Browse")
-            btn.clicked.connect(lambda checked, k=key,
-                                d=is_dir: self.browse_path(k, d))
-
-            grid_layout.addWidget(lbl, idx, 0)
-            grid_layout.addWidget(edit, idx, 1)
-            grid_layout.addWidget(btn, idx, 2)
-            self.input_fields[key] = edit
-
-        dropdown_row_idx = len(paths_config)
-
-        arch_lbl = QLabel("Spreadsheet Architecture")
-        arch_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
-        self.structure_dropdown = QComboBox(self)
-        self.structure_dropdown.addItems(
-            ["Single Table", "FKBP5 Study"])
-        grid_layout.addWidget(arch_lbl, dropdown_row_idx, 0)
-        grid_layout.addWidget(self.structure_dropdown,
-                              dropdown_row_idx, 1, 1, 2)
-
-        fallback_row_idx = dropdown_row_idx + 1
-        fallback_lbl = QLabel("Default Bone Fallback")
-        fallback_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
-        self.fallback_dropdown = QComboBox(self)
-        self.fallback_dropdown.addItems(["Tibia", "Femur"])
-        grid_layout.addWidget(fallback_lbl, fallback_row_idx, 0)
-        grid_layout.addWidget(self.fallback_dropdown,
-                              fallback_row_idx, 1, 1, 2)
-
-        main_layout.addWidget(form_frame)
-
-        action_layout = QHBoxLayout()
-        self.run_button = QPushButton("Execute Workflow")
-        self.run_button.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        self.run_button.setStyleSheet("""
-            QPushButton { background-color: #2563EB; border: 1px solid #1D4ED8; color: #FFFFFF; padding: 8px 24px; border-radius: 4px; }
-            QPushButton:hover { background-color: #1D4ED8; }
-            QPushButton:disabled { background-color: #9CA3AF; border: 1px solid #D1D5DB; }
-        """)
-        self.run_button.clicked.connect(self.run_pipeline)
-        action_layout.addStretch()
-        action_layout.addWidget(self.run_button)
-        main_layout.addLayout(action_layout)
-
-    def browse_path(self, key, is_directory):
-        current_text = self.input_fields[key].text()
-        if is_directory:
-            dir_path = QFileDialog.getExistingDirectory(
-                self, "Select Directory", current_text)
-            if dir_path:
-                self.input_fields[key].setText(os.path.normpath(dir_path))
-        else:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "Select Excel File", current_text, "Excel Files (*.xlsx *.xls)"
-            )
-            if file_path:
-                self.input_fields[key].setText(os.path.normpath(file_path))
-
-    def run_pipeline(self):
-        self.run_button.setEnabled(False)
-        self.run_button.setText("Processing Data...")
-        QApplication.processEvents()
-
-        try:
-            raw_folder = self.input_fields["raw"].text()
-            tibia_path = self.input_fields["tibia"].text()
-            femur_path = self.input_fields["femur"].text()
-            meas_path = self.input_fields["meas"].text()
-            csv_dir = self.input_fields["csv"].text()
-
-            structure_type = self.structure_dropdown.currentText()
-            fallback_bone = self.fallback_dropdown.currentText()
-
-            success = execute_pipeline(
-                data_folder=raw_folder,
-                tibia_master=tibia_path,
-                femur_master=femur_path,
-                measurement_path=meas_path,
-                csv_out_dir=csv_dir,
-                structure_type=structure_type,
-                fallback_bone=fallback_bone
-            )
-
-            if success:
-                # Updated Success Window Styling
-                success_msg = QMessageBox(self)
-                success_msg.setIcon(QMessageBox.Icon.Information)
-                success_msg.setWindowTitle("Success")
-                success_msg.setText("All calculations finalized!")
-                success_msg.setInformativeText(
-                    "Mechanical logs unified and Master data tables successfully synced.")
-                success_msg.setStyleSheet("""
-                    QMessageBox { background-color: #ffffff; }
-                    QLabel { color: #000000; }
-                    QPushButton { background-color: #f0f0f0; color: #000000; }
-                """)
-                success_msg.exec()
-
-        except Exception as e:
-            error_msg = QMessageBox(self)
-            error_msg.setIcon(QMessageBox.Icon.Critical)
-            error_msg.setWindowTitle("Error")
-            error_msg.setText("An error occurred during execution:")
-            error_msg.setInformativeText(str(e))
-            error_msg.setStyleSheet("""
-                QMessageBox { background-color: #ffffff; }
-                QLabel { color: #000000; }
-                QPushButton { background-color: #f0f0f0; color: #000000; }
-            """)
-            error_msg.exec()
-        finally:
-            self.run_button.setEnabled(True)
-            self.run_button.setText("Execute Workflow")
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = BiomechanicalPipelineApp()
-    window.show()
-    sys.exit(app.exec())
+    return success
