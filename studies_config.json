@@ -1,9 +1,9 @@
 {
     "IFS+SHP099+Medigel 2026": {
-        "raw_data_root": "C:\\Users\\olivi\\OneDrive - Medical University of South Carolina\\3-Point Bending\\Force-Displacement Raw Files\\IFS+SHP099+Medigel_LFemur_051226",
-        "master_file": "C:/Users/olivi/OneDrive - Medical University of South Carolina/3-Point Bending/IFS+SHP099+Medigel_LFemurMaster.xlsx",
-        "measurement_file": "C:\\Users\\olivi\\OneDrive - Medical University of South Carolina\\3-Point Bending\\Measurement Files\\IFS+SHP099+Medigel_LFemur_051226.xlsx",
-        "output_folder": "C:\\Users\\olivi\\OneDrive - Medical University of South Carolina\\3-Point Bending\\IFS+SHP99+Medigel 2026",
+        "raw_data_root": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226",
+        "master_file": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemurMaster.xlsx",
+        "measurement_file": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226.xlsx",
+        "output_folder": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\Grouped_Analysis_Tables",
         "group_map": {
             "CV": "Control + Medigel",
             "PV": "IFS + Medigel",
