@@ -91,11 +91,11 @@ class MainDashboard(QMainWindow):
             form.addRow(QLabel(label_text), row_layout)
             self.fkbp5_fields[key] = line_edit
 
-        # Structure and Fallback Dropdowns
+        """ Structure and Fallback Dropdowns
         self.fkbp5_arch = QComboBox()
         self.fkbp5_arch.addItems(
             ["Single Table", "Split Genders (Male/Female)"])
-        form.addRow(QLabel("Spreadsheet Architecture:"), self.fkbp5_arch)
+        form.addRow(QLabel("Spreadsheet Architecture:"), self.fkbp5_arch)"""
 
         self.fkbp5_fallback = QComboBox()
         self.fkbp5_fallback.addItems(["Tibia", "Femur"])
@@ -192,26 +192,29 @@ class MainDashboard(QMainWindow):
     def run_pipeline(self):
         current_study = self.study_selector.currentText()
         self.run_button.setEnabled(False)
-        self.run_button.setText("Running Processing Operations...")
+        self.run_button.setText("Processing...")
         QApplication.processEvents()
 
         try:
             if current_study == "FKBP5 Genotyping":
-                success = FKBP5_workflow.execute_pipeline(
-                    data_folder=self.fkbp5_fields["raw_dir"].text(),
-                    tibia_master=self.fkbp5_fields["tibia_master"].text(),
-                    femur_master=self.fkbp5_fields["femur_master"].text(),
-                    measurement_path=self.fkbp5_fields["meas_file"].text(),
-                    csv_out_dir=self.fkbp5_fields["csv_dir"].text(),
-                    structure_type=self.fkbp5_arch.currentText(),
-                    fallback_bone=self.fkbp5_fallback.currentText()
-                )
+                # Hardcode the architecture choice here so the backend receives it automatically
+                inputs = {
+                    "data_folder": self.fkbp5_fields["raw_dir"].text(),
+                    "tibia_master": self.fkbp5_fields["tibia_master"].text(),
+                    "femur_master": self.fkbp5_fields["femur_master"].text(),
+                    "measurement_path": self.fkbp5_fields["meas_file"].text(),
+                    "csv_out_dir": self.fkbp5_fields["csv_dir"].text(),
+                    "structure_type": "Split Genders Male/Female",  # Hardcoded architecture
+                    "fallback_bone": self.fkbp5_fallback.currentText()
+                }
+
+                success = FKBP5_workflow.run_workflow(inputs)
                 if success:
                     self.show_message_box(
-                        "Success", "All FKBP5 calculations finalized successfully!")
+                        "Success", "FKBP5 calculation finalized and master files successfully updated.")
                 else:
                     self.show_message_box(
-                        "Execution Incomplete", "No logs could be processed.", is_error=True)
+                        "Execution Incomplete", "Check data directory contents.", is_error=True)
             else:
                 # Compile dynamic properties for single study logic
                 study_data = self.config.get(current_study, {})

@@ -688,10 +688,16 @@ def execute_pipeline(data_folder, tibia_master, femur_master, measurement_path, 
             compiled_clean = process_all_sheets(
                 master_dest, structure_type, csv_out_dir, bone_key)
             if not compiled_clean.empty:
-                date_str = datetime.now().strftime("%m%d%y")
-                csv_name = f"Compiled_{bone_key}_Bending_Data_{date_str}.csv"
-                final_csv_path = os.path.join(csv_out_dir, csv_name)
+                # 1. Grab the directory where the master file lives
+                master_dir = os.path.dirname(master_dest)
+
+                # 2. Set the static filename without the date (this forces it to overwrite)
+                csv_name = f"FKBP5_{bone_key}Master_Compiled.csv"
+
+                # 3. Save it right next to the Master Excel file
+                final_csv_path = os.path.join(master_dir, csv_name)
                 compiled_clean.to_csv(final_csv_path, index=False)
+
         except Exception as e:
             print(f"Post-processing error on {bone_key}: {e}")
 
