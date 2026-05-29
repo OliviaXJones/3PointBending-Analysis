@@ -1,16 +1,28 @@
-# Ignore folders
+# Ignore nested git directories
+3PointBending.git/
+
+# Ignore data folders
+3-PB Preliminary Testing 2025/
+Exercise+CIE 2025/
+FKBP5 Genotyping 2026/
+FreezeThaw 2025/
+IFS+SHP99+Medigel 2026/
+Recovered FKBP5 3PB Files/
+SHP99+Medigel 2025/
+SHPvsZA_ZA+ZACtrl 2024/
 Femur_Analysis_By_Lineage/
 Force-Displacement Raw Files/
 GraphPad Files/
 Measurement Files/
-Recovered FKBP5 3PB Files/
 Tibia_Analysis_By_Genotype/
 Tibia_Analysis_By_Lineage/
-Tibia_Bottom_By_Genotype/Tibia_Top_By_Genotype/
+Tibia_Bottom_By_Genotype/
 Tibia_Top_By_Genotype/
 
-
-# Ignore files
+# Ignore data files
 *.csv
 *.xlsx
 *.docx
+*.zip
+*.parquet
+*.json
