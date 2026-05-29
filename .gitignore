@@ -21,6 +21,7 @@ Tibia_Top_By_Genotype/
 
 # Ignore data files
 *.csv
+*.prism
 *.xlsx
 *.docx
 *.zip
