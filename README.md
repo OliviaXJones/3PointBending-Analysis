@@ -1,2 +1,2 @@
 # 3PointBending
-Pipeline for processing 3-Point Bending data: Combines the bone measurements and Fz-Displacement Data into master Excel file, then pushes treatment groups to .csv files for GraphPad Prism integration.
+Pipeline for analyzing, graphing, and exporting 3-Point Bend data from the Biomomentum Mach-1 mechanical testing system. Utilizes Main_Dashboard to determine the study needing analysis. FKBP5 study is highly specific, requiring hard-coded architectural bounds. Currently utilizes studies_config.json to read experimental data & run. Next steps are to add an input & edit function to Main_Dashboard, so new studies can be added and modified easily.
