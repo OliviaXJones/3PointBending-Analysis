@@ -21,6 +21,10 @@ SAVE_PNG_DPI = 100
 TOE_LOAD_FRACTION = 0.05
 LINEAR_WINDOW_POINTS = 90
 MIN_R2 = 0.995
+DISPLACEMENT_LIMIT = 1.75        # mm — caps search range for peak load detection
+NEAR_ZERO_THRESHOLD = 0.5        # N  — load level considered "near zero" for failure
+DROP_THRESHOLD_FRACTION = 0.80   # fraction of max load — triggers failure search
+PEAK_CANDIDATE_FRACTION = 0.50   # fraction of max load — minimum for peak candidates
 
 
 def parse_id_and_group(text_string, group_map):
@@ -37,10 +41,59 @@ def parse_id_and_group(text_string, group_map):
     if match:
         pref = match.group(1).upper()
         num_id = match.group(2)
-        group_name = group_map.get(pref, pref)
+        val = group_map.get(pref, pref)
+        group_name = val.get('group', pref) if isinstance(val, dict) else val
         return pref, num_id, group_name
 
     return None, None, None
+
+
+def _build_standardized_id(pref, num_id, source_text):
+    """Returns ID like 'Z1M' or 'EP1' — preserves trailing M/F sex letter when present."""
+    m = re.search(r'\d+([MF])(?:[^a-zA-Z]|$)', str(source_text), re.IGNORECASE)
+    suffix = m.group(1).upper() if m else ""
+    return f"{pref}{num_id}{suffix}"
+
+
+def _is_mixed_group_map(group_map):
+    return any(isinstance(v, dict) for v in group_map.values())
+
+
+def _get_prefix_sex(pref, group_map):
+    val = group_map.get(pref)
+    return val.get('sex') if isinstance(val, dict) else None
+
+
+def _resolve_sex(pref, group_map, mouse_code):
+    """Returns the sex for a Mixed-mode animal, deducing from the code when requested."""
+    stored = _get_prefix_sex(pref, group_map)
+    if stored == _DEDUCE_SEX:
+        return _extract_sex_from_code(mouse_code)
+    return stored
+
+
+_KNOWN_BONES = ['Femur', 'Tibia', 'Humerus']
+_DEDUCE_SEX = 'Deduce from code'
+
+
+def _extract_sex_from_code(text_string):
+    """Returns 'Male', 'Female', or None by reading trailing M/F before a non-letter."""
+    m = re.search(r'\d+([MF])(?:[^a-zA-Z]|$)', str(text_string), re.IGNORECASE)
+    if m:
+        return 'Male' if m.group(1).upper() == 'M' else 'Female'
+    return None
+
+
+def _detect_bones_from_measurement(measurement_path, sheet_name):
+    """Returns list of bone types found via _BoneName in mouse code column, or [] if none."""
+    if not measurement_path or not os.path.exists(measurement_path):
+        return []
+    try:
+        df = pd.read_excel(measurement_path, sheet_name=sheet_name if sheet_name else 0, header=0)
+        return [b for b in _KNOWN_BONES
+                if df.iloc[:, 0].astype(str).str.contains(f'_{b}', case=False, na=False).any()]
+    except Exception:
+        return []
 
 
 # ===========================================================
@@ -151,7 +204,6 @@ def run_batch_bending_analysis(input_folder, group_map):
             load = df["Fz, N"].values
 
             load_smooth = np.convolve(load, np.ones(3) / 3, mode="same")
-            DISPLACEMENT_LIMIT = 1.75
             valid_range_mask = displacement <= DISPLACEMENT_LIMIT
 
             load_for_peak = load_smooth[valid_range_mask]
@@ -159,14 +211,13 @@ def run_batch_bending_analysis(input_folder, group_map):
                 load_for_peak) > 0 else np.max(load_smooth)
 
             candidates = np.where(
-                (load_smooth >= 0.5 * constrained_max) & (valid_range_mask))[0]
+                (load_smooth >= PEAK_CANDIDATE_FRACTION * constrained_max) & (valid_range_mask))[0]
             max_idx = candidates[np.argmax(load[candidates])] if len(
                 candidates) > 0 else np.argmax(load_smooth)
 
             max_load = load[max_idx]
             post_max_load = load[max_idx:]
-            NEAR_ZERO_THRESHOLD = 0.5
-            drop_threshold_value = max_load * 0.80
+            drop_threshold_value = max_load * DROP_THRESHOLD_FRACTION
 
             zero_drop_indices = np.where(
                 post_max_load <= NEAR_ZERO_THRESHOLD)[0]
@@ -237,9 +288,12 @@ def run_batch_bending_analysis(input_folder, group_map):
                 plot_folder, f"{base_name}.png"), dpi=SAVE_PNG_DPI)
             plt.close()
 
+            bone_in_name = next(
+                (b for b in _KNOWN_BONES if b.lower() in base_name.lower()), None)
             results.append(
                 {
-                    "Standardized_ID": f"{pref}{num_id}",
+                    "Standardized_ID": _build_standardized_id(pref, num_id, base_name),
+                    "Bone": bone_in_name,
                     "Max_Load_N": round(max_load, 4),
                     "Stiffness_N_per_mm": round(stiffness, 4),
                     "Energy_to_Failure_Nmm": round(energy, 4),
@@ -261,7 +315,7 @@ def run_batch_bending_analysis(input_folder, group_map):
 # PART 2: MASTER MERGING & CONSOLIDATION
 # ===========================================================
 
-def sync_data_to_master(analysis_excel_path, master_file, measurement_file, group_map):
+def sync_data_to_master(analysis_excel_path, master_file, measurement_file, group_map, bone_filter=None):
     if not analysis_excel_path or not os.path.exists(analysis_excel_path):
         return
 
@@ -273,6 +327,28 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
             df_meas = pd.read_excel(measurement_file)
         except Exception as e:
             print(f"Could not read measurement file: {e}")
+
+    # Filter measurement rows to matching bone
+    if bone_filter and not df_meas.empty:
+        mask = df_meas.iloc[:, 0].astype(str).str.contains(f'_{bone_filter}', case=False, na=False)
+        if mask.any():
+            df_meas = df_meas[mask].reset_index(drop=True)
+
+    # Filter mechanical results to matching bone
+    if bone_filter and "Bone" in df_mach.columns:
+        mach_bone = df_mach[df_mach["Bone"].fillna("").str.lower() == bone_filter.lower()]
+        if not mach_bone.empty:
+            df_mach = mach_bone
+
+    def _find_meas_col(df, *names):
+        for name in names:
+            if name in df.columns:
+                return name
+        return None
+
+    _meas_len_col   = _find_meas_col(df_meas, "Length")
+    _meas_diam_col  = _find_meas_col(df_meas, "D_avg")
+    _meas_thick_col = _find_meas_col(df_meas, "h_avg")
 
     wb = openpyxl.load_workbook(master_file, keep_links=True)
     ws = wb.active
@@ -291,7 +367,7 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
             for idx, m_row in df_meas.iterrows():
                 pref, num_id, _ = parse_id_and_group(m_row.iloc[0], group_map)
                 if pref:
-                    all_ids.add(f"{pref}{num_id}")
+                    all_ids.add(_build_standardized_id(pref, num_id, str(m_row.iloc[0])))
 
         # Write sorted IDs into Column 1
         sorted_ids = sorted(list(all_ids))
@@ -325,25 +401,27 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
         cell_val1 = ws.cell(row=row, column=1).value
         cell_val2 = ws.cell(row=row, column=2).value
 
+        src_val = cell_val1
         pref, num_id, _ = parse_id_and_group(cell_val1, group_map)
         if not pref:
+            src_val = cell_val2
             pref, num_id, _ = parse_id_and_group(cell_val2, group_map)
 
         if not pref:
             continue
 
-        lookup_id = f"{pref}{num_id}"
+        lookup_id = _build_standardized_id(pref, num_id, str(src_val or ''))
 
         if not df_meas.empty:
             for idx, m_row in df_meas.iterrows():
                 m_pref, m_num, _ = parse_id_and_group(m_row.iloc[0], group_map)
-                if m_pref and f"{m_pref}{m_num}" == lookup_id:
-                    ws.cell(
-                        row=row, column=col_len).value = m_row.iloc[1] if df_meas.shape[1] > 1 else None
-                    ws.cell(
-                        row=row, column=col_diam).value = m_row.iloc[8] if df_meas.shape[1] > 8 else None
-                    ws.cell(
-                        row=row, column=col_thick).value = m_row.iloc[12] if df_meas.shape[1] > 12 else None
+                if m_pref and _build_standardized_id(m_pref, m_num, str(m_row.iloc[0])) == lookup_id:
+                    ws.cell(row=row, column=col_len).value = (
+                        m_row[_meas_len_col] if _meas_len_col else None)
+                    ws.cell(row=row, column=col_diam).value = (
+                        m_row[_meas_diam_col] if _meas_diam_col else None)
+                    ws.cell(row=row, column=col_thick).value = (
+                        m_row[_meas_thick_col] if _meas_thick_col else None)
                     break
 
         mach_row = df_mach[df_mach["Standardized_ID"] == lookup_id]
@@ -391,21 +469,27 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
         "Displacement_at_Failure": find_col_name(["Displacement", "Displacement_at_Failure"]),
     }
 
+    is_mixed = _is_mixed_group_map(group_map)
     parsed_rows = []
 
     for idx, row in df.iterrows():
-        matched_pref, matched_num, matched_gname = None, None, None
+        matched_pref, matched_num, matched_gname, matched_src = None, None, None, None
 
         for col_idx in range(min(3, len(df.columns))):
             p, n, g = parse_id_and_group(row.iloc[col_idx], group_map)
             if p:
                 matched_pref, matched_num, matched_gname = p, n, g
+                matched_src = str(row.iloc[col_idx])
                 break
 
         if not matched_pref:
             continue
 
-        row_data = {"ID_Num": int(matched_num), "Group": matched_gname}
+        row_data = {
+            "ID_Num": _build_standardized_id(matched_pref, matched_num, matched_src),
+            "Group": matched_gname,
+            "Sex": _resolve_sex(matched_pref, group_map, matched_src) if is_mixed else None,
+        }
 
         for metric_key, actual_col in metric_mapping.items():
             row_data[metric_key] = row[actual_col] if actual_col else np.nan
@@ -417,29 +501,188 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
         return
 
     df_parsed = pd.DataFrame(parsed_rows)
-    expected_columns = list(group_map.values())
     os.makedirs(export_dir, exist_ok=True)
 
-    for metric_name in metric_mapping.keys():
-        if df_parsed[metric_name].isna().all():
-            continue
-
-        pivot_df = df_parsed.pivot_table(
-            index="ID_Num", columns="Group", values=metric_name, aggfunc="first")
-        pivot_df = pivot_df.reindex(columns=expected_columns)
+    def write_pivot(df_sub, col_key, metric_name, out_dir, expected_cols):
+        if df_sub[metric_name].isna().all():
+            return
+        pivot_df = df_sub.pivot_table(
+            index="ID_Num", columns=col_key, values=metric_name, aggfunc="first")
+        pivot_df = pivot_df.reindex(columns=expected_cols)
         pivot_df = pivot_df.sort_index()
-
-        out_csv_path = os.path.join(export_dir, f"{metric_name}.csv")
-
-        with open(out_csv_path, "w", encoding="utf-8") as f:
+        out_path = os.path.join(out_dir, f"{metric_name}.csv")
+        with open(out_path, "w", encoding="utf-8") as f:
             f.write("sep=,\n")
+        pivot_df.to_csv(out_path, mode="a", sep=",", index=True)
+        print(f"Generated side-by-side table: {out_path}")
 
-        pivot_df.to_csv(out_csv_path, mode="a", sep=",", index=True)
-        print(f"Generated side-by-side table: {out_csv_path}")
+    if is_mixed:
+        df_parsed["Group_Sex"] = df_parsed.apply(
+            lambda r: f"{r['Group']}_{r['Sex']}" if r["Sex"] else r["Group"], axis=1)
+
+        has_deduced = any(
+            isinstance(v, dict) and v.get('sex') == _DEDUCE_SEX for v in group_map.values())
+
+        if has_deduced:
+            combined_cols = list(dict.fromkeys(df_parsed["Group_Sex"].dropna()))
+        else:
+            combined_cols = list(dict.fromkeys(
+                f"{v.get('group', '')}_{v.get('sex', '')}" if isinstance(v, dict) else v
+                for v in group_map.values()
+            ))
+
+        for metric_name in metric_mapping:
+            write_pivot(df_parsed, "Group_Sex", metric_name, export_dir, combined_cols)
+
+        for sex_label in ["Male", "Female"]:
+            sex_dir = os.path.join(export_dir, sex_label)
+            os.makedirs(sex_dir, exist_ok=True)
+            sex_df = df_parsed[df_parsed["Sex"] == sex_label].copy()
+            if sex_df.empty:
+                continue
+            if has_deduced:
+                sex_groups = list(dict.fromkeys(sex_df["Group"].dropna()))
+            else:
+                sex_groups = list(dict.fromkeys(
+                    v.get("group", "") for v in group_map.values()
+                    if isinstance(v, dict) and v.get("sex") == sex_label
+                ))
+            for metric_name in metric_mapping:
+                write_pivot(sex_df, "Group", metric_name, sex_dir, sex_groups)
+    else:
+        expected_columns = list(group_map.values())
+        for metric_name in metric_mapping:
+            write_pivot(df_parsed, "Group", metric_name, export_dir, expected_columns)
 
 
 # ===========================================================
-# PART 4: PIPELINE EXECUTION & DASHBOARD INTEGRATION
+# PART 4: ANATOMICAL DIAMETER PARSING
+# ===========================================================
+
+def parse_anatomical_diameters_single_study(measurement_path, sheet_name, csv_out_dir, bone, sex, age, group_map, bone_filter=None):
+    if not measurement_path or not os.path.exists(measurement_path):
+        print("Anatomical diameters: measurement file not found, skipping.")
+        return
+
+    try:
+        df = pd.read_excel(measurement_path, sheet_name=sheet_name if sheet_name else 0, header=0)
+    except Exception as e:
+        print(f"Anatomical diameters: could not read sheet '{sheet_name}': {e}")
+        return
+
+    if bone_filter:
+        mask = df.iloc[:, 0].astype(str).str.contains(f'_{bone_filter}', case=False, na=False)
+        if mask.any():
+            df = df[mask].reset_index(drop=True)
+
+    if bone == "Tibia":
+        label_top, label_bottom = "Proximal_Tibia", "Distal_Tibia"
+    else:
+        label_top, label_bottom = f"Anteroposterior_{bone}", f"Mediolateral_{bone}"
+
+    is_mixed = _is_mixed_group_map(group_map)
+
+    cols_g1 = [c for c in ('D1', 'D2', 'D3') if c in df.columns]
+    cols_g2 = [c for c in ('D4', 'D5', 'D6') if c in df.columns]
+
+    if not cols_g1:
+        print("Anatomical diameters: no D1/D2/D3 columns found in measurement file, skipping.")
+        return
+    if not cols_g2:
+        print("Anatomical diameters: only 3 diameter measurements found — AP/ML split requires D1–D6. Skipping.")
+        return
+
+    rows = []
+    for _, row in df.iterrows():
+        pref, num_id, group_name = parse_id_and_group(row.iloc[0], group_map)
+        if not pref:
+            continue
+        try:
+            avg1 = pd.to_numeric(row[cols_g1], errors='coerce').mean()
+            avg2 = pd.to_numeric(row[cols_g2], errors='coerce').mean()
+        except Exception:
+            continue
+        if pd.isna(avg1) or pd.isna(avg2):
+            continue
+        rows.append({
+            'ID_Num': _build_standardized_id(pref, num_id, str(row.iloc[0])),
+            'Group': group_name,
+            'Sex': _resolve_sex(pref, group_map, row.iloc[0]) if is_mixed else None,
+            'Top_Val': max(avg1, avg2),
+            'Bottom_Val': min(avg1, avg2),
+        })
+
+    if not rows:
+        print("Anatomical diameters: no matching rows found in measurement file.")
+        return
+
+    master_df = pd.DataFrame(rows)
+    folder_top = os.path.join(csv_out_dir, label_top)
+    folder_bottom = os.path.join(csv_out_dir, label_bottom)
+    os.makedirs(folder_top, exist_ok=True)
+    os.makedirs(folder_bottom, exist_ok=True)
+
+    age_clean = age.replace(" ", "_")
+
+    def write_anat_pivot(df_sub, col_key, data_key, target_folder, label, file_prefix, expected_cols):
+        pivot = df_sub.pivot_table(
+            index='ID_Num', columns=col_key, values=data_key, aggfunc='first')
+        pivot = pivot.reindex(columns=expected_cols)
+        pivot = pivot.sort_index()
+        out_path = os.path.join(target_folder, f"{file_prefix}_{label}.csv")
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write("sep=,\n")
+        pivot.to_csv(out_path, mode='a', sep=',', index=True)
+        print(f"Generated anatomical diameter table: {out_path}")
+
+    if is_mixed:
+        master_df["Group_Sex"] = master_df.apply(
+            lambda r: f"{r['Group']}_{r['Sex']}" if r["Sex"] else r["Group"], axis=1)
+
+        has_deduced = any(
+            isinstance(v, dict) and v.get('sex') == _DEDUCE_SEX for v in group_map.values())
+
+        if has_deduced:
+            combined_cols = list(dict.fromkeys(master_df["Group_Sex"].dropna()))
+        else:
+            combined_cols = list(dict.fromkeys(
+                f"{v.get('group', '')}_{v.get('sex', '')}" if isinstance(v, dict) else v
+                for v in group_map.values()
+            ))
+
+        for data_key, target_folder, label in [
+            ('Top_Val', folder_top, label_top),
+            ('Bottom_Val', folder_bottom, label_bottom),
+        ]:
+            write_anat_pivot(master_df, 'Group_Sex', data_key, target_folder, label,
+                             f"Mixed_{age_clean}", combined_cols)
+            for sex_label in ['Male', 'Female']:
+                sex_sub = os.path.join(target_folder, sex_label)
+                os.makedirs(sex_sub, exist_ok=True)
+                sex_df = master_df[master_df['Sex'] == sex_label].copy()
+                if sex_df.empty:
+                    continue
+                if has_deduced:
+                    sex_groups = list(dict.fromkeys(sex_df["Group"].dropna()))
+                else:
+                    sex_groups = list(dict.fromkeys(
+                        v.get('group', '') for v in group_map.values()
+                        if isinstance(v, dict) and v.get('sex') == sex_label
+                    ))
+                write_anat_pivot(sex_df, 'Group', data_key, sex_sub, label,
+                                 f"{sex_label}_{age_clean}", sex_groups)
+    else:
+        expected_groups = list(group_map.values())
+        for data_key, target_folder, label in [
+            ('Top_Val', folder_top, label_top),
+            ('Bottom_Val', folder_bottom, label_bottom),
+        ]:
+            write_anat_pivot(master_df, 'Group', data_key, target_folder, label,
+                             f"{sex}_{age_clean}", expected_groups)
+
+
+# ===========================================================
+# PART 5: PIPELINE EXECUTION & DASHBOARD INTEGRATION
 # ===========================================================
 
 def generate_auto_master(output_folder, study_name, sex, age, bone):
@@ -476,7 +719,10 @@ def generate_auto_master(output_folder, study_name, sex, age, bone):
     return master_path
 
 
-def execute_single_study_pipeline(data_folder, master_path, measurement_path, csv_out_dir, group_map, study_name):
+def execute_single_study_pipeline(data_folder, master_path, measurement_path, csv_out_dir, group_map, study_name,
+                                   bone='Bone', sex='Sex', age='Age',
+                                   anatomical_diameters=False, measurement_sheet=None,
+                                   bone_filter=None):
     root_path = Path(data_folder)
 
     analysis_excel = run_batch_bending_analysis(str(root_path), group_map)
@@ -486,13 +732,13 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
 
     if os.path.exists(master_path):
         sync_data_to_master(analysis_excel, master_path,
-                            measurement_path, group_map)
+                            measurement_path, group_map, bone_filter=bone_filter)
 
         try:
             df_final = pd.read_excel(master_path)
             master_dir = os.path.dirname(master_path)
 
-            compiled_filename = f"{study_name.replace(' ', '_')}_Master_Compiled.csv"
+            compiled_filename = f"{study_name.replace(' ', '_')}_{bone}_Master_Compiled.csv"
             compiled_path = os.path.join(master_dir, compiled_filename)
 
             df_final.to_csv(compiled_path, index=False, sep=",")
@@ -504,6 +750,14 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
             generate_segregated_csvs(master_path, csv_out_dir, group_map)
         except Exception as e:
             print(f"Error compiling side-by-side metrics: {e}")
+
+    if anatomical_diameters:
+        try:
+            parse_anatomical_diameters_single_study(
+                measurement_path, measurement_sheet, csv_out_dir, bone, sex, age, group_map,
+                bone_filter=bone_filter)
+        except Exception as e:
+            print(f"Anatomical diameter parsing error: {e}")
 
     return True
 
@@ -521,27 +775,51 @@ def run_workflow(inputs):
     sex = inputs.get('sex', 'Sex')
     age = inputs.get('age', 'Age')
     bone = inputs.get('bone', 'Bone')
+    anatomical_diameters = inputs.get('anatomical_diameters', False)
+    measurement_sheet = inputs.get('measurement_sheet', None)
+    auto_csv_subfolder = inputs.get('auto_csv_subfolder', True)
 
     print(f"Starting Single Study Workflow for: {study_name}")
 
-    # FIXED: Extract the directory of the measurement file
     if measurement_path and os.path.exists(measurement_path):
         master_output_target = os.path.dirname(measurement_path)
     else:
         master_output_target = csv_out_dir
 
-    # 1. Check/Auto-Generate the Master File in the Measurement Directory
-    master_path = generate_auto_master(
-        master_output_target, study_name, sex, age, bone)
+    # Detect bones from measurement file; fall back to configured bone if none found
+    detected_bones = _detect_bones_from_measurement(measurement_path, measurement_sheet)
+    bones_to_run = detected_bones if detected_bones else [bone]
+    use_bone_subdirs = bool(detected_bones)
 
-    # 2. Run the math and sync operations
-    success = execute_single_study_pipeline(
-        data_folder=data_folder,
-        master_path=master_path,
-        measurement_path=measurement_path,
-        csv_out_dir=csv_out_dir,
-        group_map=group_map,
-        study_name=study_name
-    )
+    all_success = True
+    for bone_type in bones_to_run:
+        print(f"\n--- Running pipeline for bone: {bone_type} ---")
 
-    return success
+        if use_bone_subdirs:
+            bone_csv_dir = os.path.join(csv_out_dir, f"{study_name}_{bone_type}_CSVFiles")
+        elif auto_csv_subfolder:
+            bone_csv_dir = os.path.join(csv_out_dir, f"{study_name}_CSVFiles")
+        else:
+            bone_csv_dir = csv_out_dir
+        bone_filter = bone_type if use_bone_subdirs else None
+
+        master_path = generate_auto_master(
+            master_output_target, study_name, sex, age, bone_type)
+
+        success = execute_single_study_pipeline(
+            data_folder=data_folder,
+            master_path=master_path,
+            measurement_path=measurement_path,
+            csv_out_dir=bone_csv_dir,
+            group_map=group_map,
+            study_name=study_name,
+            bone=bone_type,
+            sex=sex,
+            age=age,
+            anatomical_diameters=anatomical_diameters,
+            measurement_sheet=measurement_sheet,
+            bone_filter=bone_filter,
+        )
+        all_success = all_success and success
+
+    return all_success

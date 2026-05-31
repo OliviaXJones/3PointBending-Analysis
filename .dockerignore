@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+
+# Desktop app files (not needed in container)
+Main_Dashboard.py
+Fz_Displacement_3PB_3.0.py
+Fz_Displacement_3PB_3.0_OverlayGraphs.py
+studies_config.json
+
+# Study data folders and files
+*.xlsx
+*.csv
+*.prism
+*.md
+FKBP5 Genotyping 2026
+Exercise+CIE 2025
+SHP99+Medigel 2025
+SHPvsZA_ZA+ZACtrl 2024
+IFS+SHP99+Medigel 2026
+FreezeThaw 2025
+Recovered FKBP5 3PB Files
+Mach-1_vs_Python_120925.prism

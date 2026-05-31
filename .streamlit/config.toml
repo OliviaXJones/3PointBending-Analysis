@@ -1,0 +1,5 @@
+[client]
+maxUploadSize = 500
+
+[server]
+maxUploadSize = 500
