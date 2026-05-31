@@ -372,9 +372,9 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                         ws.cell(row=row, column=start_col +
                                 1).value = m_row.iloc[0, 1]
                         ws.cell(row=row, column=start_col +
-                                2).value = m_row.iloc[0, 8]
+                                2).value = m_row.iloc[0, 2]
                         ws.cell(row=row, column=start_col +
-                                3).value = m_row.iloc[0, 12]
+                                3).value = m_row.iloc[0, 3]
 
                 if not df_mach_all.empty:
                     mach_mask = (df_mach_all["Base_Code"] == base_master_code)

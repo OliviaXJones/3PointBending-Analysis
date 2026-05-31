@@ -184,200 +184,200 @@ if tool == "BioDent (Coming Soon)":
 # 3-Point BENDING — SINGLE STUDY
 # ===========================================================================
 
-    # -----------------------------------------------------------------------
-    # Sidebar — Study Manager
-    # -----------------------------------------------------------------------
-    config = load_studies_config()
-    st.sidebar.subheader("Study Manager")
-    study_names = list(config.keys())
-    selected = st.sidebar.selectbox("Saved Studies", ["(New Study)"] + study_names)
+# -----------------------------------------------------------------------
+# Sidebar — Study Manager
+# -----------------------------------------------------------------------
+config = load_studies_config()
+st.sidebar.subheader("Study Manager")
+study_names = list(config.keys())
+selected = st.sidebar.selectbox("Saved Studies", ["(New Study)"] + study_names)
 
-    load_col, del_col = st.sidebar.columns(2)
+load_col, del_col = st.sidebar.columns(2)
 
-    if load_col.button("Load", disabled=(selected == "(New Study)")):
-        d = config[selected]
-        is_m = d.get("sex", "Male") == "Mixed"
-        st.session_state["f_name"] = selected
-        st.session_state["f_sex"] = d.get("sex", "Male")
-        st.session_state["f_age"] = d.get("age", "16 Weeks")
-        st.session_state["f_bone"] = d.get("bone", "Femur")
-        st.session_state["f_auto_csv"] = d.get("auto_csv_subfolder", True)
-        st.session_state["f_anat"] = d.get("anatomical_diameters", False)
-        st.session_state["ss_group_df"] = group_map_to_df(d.get("group_map", {}), is_m)
-        st.session_state["ss_prev_mixed"] = is_m
-        st.rerun()
+if load_col.button("Load", disabled=(selected == "(New Study)")):
+    d = config[selected]
+    is_m = d.get("sex", "Male") == "Mixed"
+    st.session_state["f_name"] = selected
+    st.session_state["f_sex"] = d.get("sex", "Male")
+    st.session_state["f_age"] = d.get("age", "16 Weeks")
+    st.session_state["f_bone"] = d.get("bone", "Femur")
+    st.session_state["f_auto_csv"] = d.get("auto_csv_subfolder", True)
+    st.session_state["f_anat"] = d.get("anatomical_diameters", False)
+    st.session_state["ss_group_df"] = group_map_to_df(d.get("group_map", {}), is_m)
+    st.session_state["ss_prev_mixed"] = is_m
+    st.rerun()
 
-    if del_col.button("Delete", disabled=(selected == "(New Study)")):
-        del config[selected]
-        save_studies_config(config)
-        st.rerun()
+if del_col.button("Delete", disabled=(selected == "(New Study)")):
+    del config[selected]
+    save_studies_config(config)
+    st.rerun()
 
-    # -----------------------------------------------------------------------
-    # Main form
-    # -----------------------------------------------------------------------
-    st.header("Single Study")
+# -----------------------------------------------------------------------
+# Main form
+# -----------------------------------------------------------------------
+st.header("Single Study")
 
-    # Initialise session state defaults
-    for key, default in [("f_name", ""), ("f_age", "16 Weeks")]:
-        st.session_state.setdefault(key, default)
+# Initialise session state defaults
+for key, default in [("f_name", ""), ("f_age", "16 Weeks")]:
+    st.session_state.setdefault(key, default)
 
-    c1, c2, c3 = st.columns(3)
-    study_name = c1.text_input("Study Name", key="f_name", placeholder="e.g. IFS+SHP099 2026")
-    sex = c2.selectbox("Cohort Sex", ["Male", "Female", "Mixed"], key="f_sex")
-    age = c3.text_input("Cohort Age", key="f_age")
+c1, c2, c3 = st.columns(3)
+study_name = c1.text_input("Study Name", key="f_name", placeholder="e.g. IFS+SHP099 2026")
+sex = c2.selectbox("Cohort Sex", ["Male", "Female", "Mixed"], key="f_sex")
+age = c3.text_input("Cohort Age", key="f_age")
 
-    c4, c5 = st.columns(2)
-    bone = c4.selectbox("Target Bone", ["Femur", "Tibia", "Humerus"], key="f_bone")
-    auto_csv = c5.checkbox(
-        "Auto-create StudyName_CSVFiles subfolder",
-        key="f_auto_csv",
-        value=st.session_state.get("f_auto_csv", True),
+c4, c5 = st.columns(2)
+bone = c4.selectbox("Target Bone", ["Femur", "Tibia", "Humerus"], key="f_bone")
+auto_csv = c5.checkbox(
+    "Auto-create StudyName_CSVFiles subfolder",
+    key="f_auto_csv",
+    value=st.session_state.get("f_auto_csv", True),
+)
+anat_diam = st.checkbox(
+    "Generate Anatomical Diameter Folders",
+    key="f_anat",
+    value=st.session_state.get("f_anat", False),
+)
+
+if st.sidebar.button("Save Study", disabled=not study_name):
+    is_m = sex == "Mixed"
+    gm_df = st.session_state.get("ss_group_df", pd.DataFrame())
+    config[study_name] = {
+        "sex": sex,
+        "age": age,
+        "bone": bone,
+        "auto_csv_subfolder": auto_csv,
+        "anatomical_diameters": anat_diam,
+        "group_map": build_group_map(gm_df, is_m),
+    }
+    save_studies_config(config)
+    st.sidebar.success("Saved!")
+
+# -----------------------------------------------------------------------
+# Group map editor
+# -----------------------------------------------------------------------
+st.subheader("Group Map")
+is_mixed = sex == "Mixed"
+
+if st.session_state.get("ss_prev_mixed") != is_mixed:
+    st.session_state.ss_group_df = (
+        pd.DataFrame(columns=["Prefix", "Sex", "Group Name"])
+        if is_mixed
+        else pd.DataFrame(columns=["Prefix", "Group Name"])
     )
-    anat_diam = st.checkbox(
-        "Generate Anatomical Diameter Folders",
-        key="f_anat",
-        value=st.session_state.get("f_anat", False),
-    )
+    st.session_state.ss_prev_mixed = is_mixed
 
-    if st.sidebar.button("Save Study", disabled=not study_name):
-        is_m = sex == "Mixed"
-        gm_df = st.session_state.get("ss_group_df", pd.DataFrame())
-        config[study_name] = {
+st.session_state.setdefault(
+    "ss_group_df",
+    pd.DataFrame(columns=["Prefix", "Sex", "Group Name"] if is_mixed else ["Prefix", "Group Name"]),
+)
+
+col_cfg = {"Prefix": st.column_config.TextColumn("Prefix", width="small")}
+if is_mixed:
+    col_cfg["Sex"] = st.column_config.SelectboxColumn(
+        "Sex", options=["Male", "Female", _DEDUCE_SEX], default="Male", width="medium"
+    )
+col_cfg["Group Name"] = st.column_config.TextColumn("Group Name")
+
+edited_gm = st.data_editor(
+    st.session_state.ss_group_df,
+    column_config=col_cfg,
+    num_rows="dynamic",
+    use_container_width=True,
+    key=f"gm_editor_{is_mixed}",
+)
+
+# -----------------------------------------------------------------------
+# File uploaders
+# -----------------------------------------------------------------------
+st.subheader("Data Files")
+st.caption("Tip: zip your raw data folder (right-click → Send to → Compressed folder) and upload the zip.")
+raw_zip = st.file_uploader(
+    "Raw Data Folder (.zip)", type="zip", key="ss_raw_zip"
+)
+meas_upload = st.file_uploader(
+    "Measurement Excel File", type=["xlsx", "xls"], key="ss_meas"
+)
+
+measurement_sheet = None
+if meas_upload:
+    try:
+        meas_upload.seek(0)
+        sheets = pd.ExcelFile(meas_upload).sheet_names
+        meas_upload.seek(0)
+        if len(sheets) > 1:
+            measurement_sheet = st.selectbox("Measurement Sheet", sheets)
+    except Exception:
+        pass
+
+# -----------------------------------------------------------------------
+# Run
+# -----------------------------------------------------------------------
+if st.button("Execute Workflow", type="primary", disabled=not (study_name and raw_zip)):
+    group_map = build_group_map(edited_gm, is_mixed)
+    if not group_map:
+        st.error("Group Map is empty — add at least one prefix row before running.")
+        st.stop()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_folder = os.path.join(tmpdir, "raw_data")
+        os.makedirs(data_folder)
+        raw_zip.seek(0)
+        with zipfile.ZipFile(io.BytesIO(raw_zip.read())) as zf:
+            for member in zf.namelist():
+                if member.lower().endswith(".txt"):
+                    # Flatten into one folder — Single Study scans one directory only
+                    dest = os.path.join(data_folder, os.path.basename(member))
+                    with zf.open(member) as src, open(dest, "wb") as out:
+                        out.write(src.read())
+
+        meas_path = save_upload(meas_upload, tmpdir) if meas_upload else ""
+        master_dir = os.path.dirname(meas_path) if meas_path else tmpdir
+        csv_out = os.path.join(tmpdir, "output")
+        os.makedirs(csv_out)
+
+        # Pull existing masters from GCS so data accumulates across sessions
+        with st.spinner("Checking cloud storage for existing master files…"):
+            detected = _detect_bones_from_measurement(meas_path, measurement_sheet)
+            bones_to_fetch = detected if detected else [bone]
+            fetched = [
+                bt for bt in bones_to_fetch
+                if download_master(study_name, sex, age, bt, master_dir)
+            ]
+        if fetched:
+            st.info(f"Loaded existing master(s) from cloud: {', '.join(fetched)}")
+
+        inputs = {
+            "study_name": study_name,
+            "data_folder": data_folder,
+            "measurement_path": meas_path,
+            "csv_out_dir": csv_out,
+            "group_map": group_map,
             "sex": sex,
             "age": age,
             "bone": bone,
-            "auto_csv_subfolder": auto_csv,
             "anatomical_diameters": anat_diam,
-            "group_map": build_group_map(gm_df, is_m),
+            "measurement_sheet": measurement_sheet,
+            "auto_csv_subfolder": auto_csv,
         }
-        save_studies_config(config)
-        st.sidebar.success("Saved!")
 
-    # -----------------------------------------------------------------------
-    # Group map editor
-    # -----------------------------------------------------------------------
-    st.subheader("Group Map")
-    is_mixed = sex == "Mixed"
+        with st.spinner("Running workflow…"):
+            success, log = run_captured(SingleStudy_workflow.run_workflow, inputs)
 
-    if st.session_state.get("ss_prev_mixed") != is_mixed:
-        st.session_state.ss_group_df = (
-            pd.DataFrame(columns=["Prefix", "Sex", "Group Name"])
-            if is_mixed
-            else pd.DataFrame(columns=["Prefix", "Group Name"])
+        with st.spinner("Saving master files to cloud storage…"):
+            upload_masters(master_dir)
+
+        if success:
+            st.success("Workflow completed successfully.")
+        else:
+            st.error("Workflow encountered issues — see log below.")
+
+        with st.expander("Workflow Log", expanded=not success):
+            st.text(log)
+
+        st.download_button(
+            "⬇ Download All Results (.zip)",
+            data=collect_outputs(tmpdir),
+            file_name=f"{study_name.replace(' ', '_')}_results.zip",
+            mime="application/zip",
         )
-        st.session_state.ss_prev_mixed = is_mixed
-
-    st.session_state.setdefault(
-        "ss_group_df",
-        pd.DataFrame(columns=["Prefix", "Sex", "Group Name"] if is_mixed else ["Prefix", "Group Name"]),
-    )
-
-    col_cfg = {"Prefix": st.column_config.TextColumn("Prefix", width="small")}
-    if is_mixed:
-        col_cfg["Sex"] = st.column_config.SelectboxColumn(
-            "Sex", options=["Male", "Female", _DEDUCE_SEX], default="Male", width="medium"
-        )
-    col_cfg["Group Name"] = st.column_config.TextColumn("Group Name")
-
-    edited_gm = st.data_editor(
-        st.session_state.ss_group_df,
-        column_config=col_cfg,
-        num_rows="dynamic",
-        use_container_width=True,
-        key=f"gm_editor_{is_mixed}",
-    )
-
-    # -----------------------------------------------------------------------
-    # File uploaders
-    # -----------------------------------------------------------------------
-    st.subheader("Data Files")
-    st.caption("Tip: zip your raw data folder (right-click → Send to → Compressed folder) and upload the zip.")
-    raw_zip = st.file_uploader(
-        "Raw Data Folder (.zip)", type="zip", key="ss_raw_zip"
-    )
-    meas_upload = st.file_uploader(
-        "Measurement Excel File", type=["xlsx", "xls"], key="ss_meas"
-    )
-
-    measurement_sheet = None
-    if meas_upload:
-        try:
-            meas_upload.seek(0)
-            sheets = pd.ExcelFile(meas_upload).sheet_names
-            meas_upload.seek(0)
-            if len(sheets) > 1:
-                measurement_sheet = st.selectbox("Measurement Sheet", sheets)
-        except Exception:
-            pass
-
-    # -----------------------------------------------------------------------
-    # Run
-    # -----------------------------------------------------------------------
-    if st.button("Execute Workflow", type="primary", disabled=not (study_name and raw_zip)):
-        group_map = build_group_map(edited_gm, is_mixed)
-        if not group_map:
-            st.error("Group Map is empty — add at least one prefix row before running.")
-            st.stop()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data_folder = os.path.join(tmpdir, "raw_data")
-            os.makedirs(data_folder)
-            raw_zip.seek(0)
-            with zipfile.ZipFile(io.BytesIO(raw_zip.read())) as zf:
-                for member in zf.namelist():
-                    if member.lower().endswith(".txt"):
-                        # Flatten into one folder — Single Study scans one directory only
-                        dest = os.path.join(data_folder, os.path.basename(member))
-                        with zf.open(member) as src, open(dest, "wb") as out:
-                            out.write(src.read())
-
-            meas_path = save_upload(meas_upload, tmpdir) if meas_upload else ""
-            master_dir = os.path.dirname(meas_path) if meas_path else tmpdir
-            csv_out = os.path.join(tmpdir, "output")
-            os.makedirs(csv_out)
-
-            # Pull existing masters from GCS so data accumulates across sessions
-            with st.spinner("Checking cloud storage for existing master files…"):
-                detected = _detect_bones_from_measurement(meas_path, measurement_sheet)
-                bones_to_fetch = detected if detected else [bone]
-                fetched = [
-                    bt for bt in bones_to_fetch
-                    if download_master(study_name, sex, age, bt, master_dir)
-                ]
-            if fetched:
-                st.info(f"Loaded existing master(s) from cloud: {', '.join(fetched)}")
-
-            inputs = {
-                "study_name": study_name,
-                "data_folder": data_folder,
-                "measurement_path": meas_path,
-                "csv_out_dir": csv_out,
-                "group_map": group_map,
-                "sex": sex,
-                "age": age,
-                "bone": bone,
-                "anatomical_diameters": anat_diam,
-                "measurement_sheet": measurement_sheet,
-                "auto_csv_subfolder": auto_csv,
-            }
-
-            with st.spinner("Running workflow…"):
-                success, log = run_captured(SingleStudy_workflow.run_workflow, inputs)
-
-            with st.spinner("Saving master files to cloud storage…"):
-                upload_masters(master_dir)
-
-            if success:
-                st.success("Workflow completed successfully.")
-            else:
-                st.error("Workflow encountered issues — see log below.")
-
-            with st.expander("Workflow Log", expanded=not success):
-                st.text(log)
-
-            st.download_button(
-                "⬇ Download All Results (.zip)",
-                data=collect_outputs(tmpdir),
-                file_name=f"{study_name.replace(' ', '_')}_results.zip",
-                mime="application/zip",
-            )
