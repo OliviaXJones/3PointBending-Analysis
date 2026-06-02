@@ -22,6 +22,11 @@ Tibia_Top_By_Genotype/
 # Ignore local launcher scripts
 *.bat
 
+# PyInstaller build output
+build/
+dist/
+*.spec
+
 # Ignore data files
 *.csv
 *.prism
