@@ -1,7 +1,6 @@
 import os
 import sys
 import glob
-from io import StringIO
 from datetime import datetime
 from pathlib import Path
 
@@ -13,100 +12,19 @@ import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
 
+from bending_core import read_bending_txt, dominant_linear_region, TOE_LOAD_FRACTION, LINEAR_WINDOW_POINTS, MIN_R2
+
 # ===========================================================
 # DEFAULT CONFIGURATION & CONSTANTS
 # ===========================================================
-DEFAULT_RAW_DATA_ROOT = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia_11226"
-DEFAULT_TIBIA_MASTER_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
-DEFAULT_FEMUR_MASTER_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
-DEFAULT_MEASUREMENT_FILE = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia+Femur_11226.xlsx"
-DEFAULT_CSV_OUTPUT_DIR = r"F:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
+DEFAULT_RAW_DATA_ROOT = r"E:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5 RawDataFiles"
+DEFAULT_TIBIA_MASTER_FILE = r"E:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingTibiaMaster.xlsx"
+DEFAULT_FEMUR_MASTER_FILE = r"E:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_3-PointBendingFemurMaster.xlsx"
+DEFAULT_MEASUREMENT_FILE = r"E:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5Null_Tibia+Femur_11226.xlsx"
+DEFAULT_CSV_OUTPUT_DIR = r"E:\3-Point Bending\FKBP5 Genotyping 2026\FKBP5_CSVFiles"
 
 FILE_GLOB_PATTERN = "*.txt"
 SAVE_PNG_DPI = 100
-TOE_LOAD_FRACTION = 0.05
-LINEAR_WINDOW_POINTS = 90
-MIN_R2 = 0.995
-
-
-# ===========================================================
-# PART 1: BENDING DATA ANALYZER FUNCTIONS
-# ===========================================================
-
-def read_bending_txt(filepath):
-    with open(filepath, "r", errors="ignore") as f:
-        lines = f.readlines()
-
-    data_start = None
-    data_end = None
-    for i, line in enumerate(lines):
-        if "<DATA>" in line:
-            data_start = i + 1
-        elif "<END DATA>" in line and data_start:
-            data_end = i
-            break
-    if data_start is None or data_end is None:
-        raise ValueError(f"No valid <DATA> section in {filepath}")
-
-    data_lines = lines[data_start:data_end]
-    header = None
-    for i, line in enumerate(data_lines):
-        parts = line.strip().split("\t")
-        try:
-            float(parts[0])
-        except ValueError:
-            header = parts
-            data_lines = data_lines[i + 1:]
-            break
-
-    df = pd.read_csv(
-        StringIO("".join(data_lines)), sep="\t", names=header, engine="python"
-    )
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["Fz, N", "Position (z), mm"], how="any")
-    if "Fx" in df.columns:
-        df["Fz, N"] = df["Fx"]
-    if "Position (z)" in df.columns:
-        df["Position (z), mm"] = df["Position (z)"]
-    df["Fz, N"] = -df["Fz, N"]
-    return df
-
-
-def dominant_linear_region(x, y, window=30, min_r2=0.995):
-    best_len = 0
-    best = (0, 0, 0, 0)
-    n = len(x)
-
-    if n < window:
-        return 0, 0, 0, n
-
-    for start in range(0, n - window, 2):
-        end = start + window
-        x_seg = x[start:end]
-        y_seg = y[start:end]
-
-        m, b = np.polyfit(x_seg, y_seg, 1)
-        r = np.corrcoef(x_seg, y_seg)[0, 1]
-        r2 = r**2
-
-        if r2 >= min_r2:
-            while end < n:
-                next_end = min(end + 5, n)
-                x_ext = x[start:next_end]
-                y_ext = y[start:next_end]
-                m_ext, b_ext = np.polyfit(x_ext, y_ext, 1)
-                r_ext = np.corrcoef(x_ext, y_ext)[0, 1]
-                if (r_ext**2) < min_r2:
-                    break
-                m, b, end = m_ext, b_ext, next_end
-
-            if (end - start) > best_len:
-                best_len = end - start
-                best = (m, b, start, end)
-
-    return best
 
 
 def determine_bone_type(folder_path, fallback_bone):
@@ -338,11 +256,22 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
         ws = wb[sheet_name]
         df_meas = df_meas_all.get(sheet_name, pd.DataFrame())
 
+        print(f"\n[DEBUG] Processing sheet: {sheet_name}")
+        print(f"[DEBUG] Measurement data found: {not df_meas.empty}, rows: {len(df_meas)}")
+
         if not df_meas.empty:
             df_meas["Base_Code"] = df_meas.iloc[:, 0].astype(
                 str).str.split('_').str[0].str.upper().str.strip()
+            print(f"[DEBUG] Sample Base_Codes: {df_meas['Base_Code'].head(3).tolist()}")
+            if df_meas.iloc[:, 0].astype(str).str.contains("M.4", case=False, na=False).any():
+                m4_codes = df_meas[df_meas.iloc[:, 0].astype(str).str.contains("M.4", case=False, na=False)]
+                print(f"[DEBUG] Found {len(m4_codes)} M.4 rows: raw codes = {m4_codes.iloc[:, 0].tolist()[:3]}, base codes = {m4_codes['Base_Code'].tolist()[:3]}")
 
         for row in range(2, ws.max_row + 1):
+            if row <= 12:  # Only for first 10 data rows
+                colA = ws.cell(row=row, column=1).value
+                colJ = ws.cell(row=row, column=10).value
+                print(f"[DEBUG] Row {row}: colA={colA}, colJ={colJ}")
             for start_col in target_columns:
                 mouse_code = ws.cell(row=row, column=start_col).value
                 if not mouse_code:
@@ -357,6 +286,10 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
 
                     m_row = pd.DataFrame()
                     if bone_target == "Femur":
+                        if not potential_meas.empty:
+                            first_code = str(potential_meas.iloc[0, 0])
+                            has_femur = "FEMUR" in first_code.upper()
+                            print(f"[DEBUG] Femur check for {base_master_code}: code='{first_code}', has_FEMUR={has_femur}")
                         m_row = potential_meas[potential_meas.iloc[:, 0].astype(
                             str).str.upper().str.contains("FEMUR")]
                     else:

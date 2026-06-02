@@ -10,7 +10,9 @@ __pycache__
 # Desktop app files (not needed in container)
 Main_Dashboard.py
 Fz_Displacement_3PB_3.0.py
-Fz_Displacement_3PB_3.0_OverlayGraphs.py
+FKBP5Heat_workflow.py
+FKBP5New_workflow.py
+OverlayGraphs_workflow.py
 studies_config.json
 
 # Study data folders and files

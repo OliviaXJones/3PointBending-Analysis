@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy only the files the app needs
 COPY streamlit_app.py .
 COPY SingleStudy_workflow.py .
+COPY bending_core.py .
 COPY .streamlit/ .streamlit/
 
 EXPOSE 8080

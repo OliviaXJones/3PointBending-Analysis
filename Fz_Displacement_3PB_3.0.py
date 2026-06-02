@@ -4,12 +4,13 @@
 
 import os
 import glob
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import StringIO
 from datetime import datetime
 from tkinter import Tk, filedialog, messagebox
+
+from bending_core import read_bending_txt, dominant_linear_region, TOE_LOAD_FRACTION, LINEAR_WINDOW_POINTS, MIN_R2
+import pandas as pd
 
 root = Tk()
 root.withdraw()
@@ -42,91 +43,6 @@ TRY_EXPORT_EXCEL = True
 
 # Dynamic Filename: Fz_Displacement_Analysis_MMDDYY.xlsx
 EXCEL_FILENAME = f"Fz_Displacement_Analysis_{date_str}.xlsx"
-
-TOE_LOAD_FRACTION = 0.05
-LINEAR_WINDOW_POINTS = 90  # Points to start the search
-MIN_R2 = 0.995
-
-# ================= FUNCTIONS =================
-
-
-def read_bending_txt(filepath):
-    with open(filepath, 'r', errors='ignore') as f:
-        lines = f.readlines()
-
-    data_start = None
-    data_end = None
-    for i, line in enumerate(lines):
-        if "<DATA>" in line:
-            data_start = i + 1
-        elif "<END DATA>" in line and data_start:
-            data_end = i
-            break
-    if data_start is None or data_end is None:
-        raise ValueError(f"No valid <DATA> section in {filepath}")
-
-    data_lines = lines[data_start:data_end]
-    header = None
-    for i, line in enumerate(data_lines):
-        parts = line.strip().split('\t')
-        try:
-            float(parts[0])
-        except:
-            header = parts
-            data_lines = data_lines[i+1:]
-            break
-
-    df = pd.read_csv(StringIO("".join(data_lines)),
-                     sep="\t", names=header, engine='python')
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    df = df.dropna(subset=['Fz, N', 'Position (z), mm'], how='any')
-    if 'Fx' in df.columns:
-        df['Fz, N'] = df['Fx']
-    if 'Position (z)' in df.columns:
-        df['Position (z), mm'] = df['Position (z)']
-    df['Fz, N'] = -df['Fz, N']
-    return df
-
-
-def dominant_linear_region(x, y, window=30, min_r2=0.995):
-    """Optimized linear region search to prevent hanging."""
-    best_len = 0
-    best = (0, 0, 0, 0)  # m, b, start, end
-    n = len(x)
-
-    if n < window:
-        return 0, 0, 0, n
-
-    # Step through the data in small increments to speed up search
-    for start in range(0, n - window, 2):
-        end = start + window
-        x_seg = x[start:end]
-        y_seg = y[start:end]
-
-        m, b = np.polyfit(x_seg, y_seg, 1)
-        r = np.corrcoef(x_seg, y_seg)[0, 1]
-        r2 = r**2
-
-        if r2 >= min_r2:
-            # Extend forward in larger chunks to save time
-            while end < n:
-                next_end = min(end + 5, n)
-                x_ext = x[start:next_end]
-                y_ext = y[start:next_end]
-                m_ext, b_ext = np.polyfit(x_ext, y_ext, 1)
-                r_ext = np.corrcoef(x_ext, y_ext)[0, 1]
-                if (r_ext**2) < min_r2:
-                    break
-                m, b, end = m_ext, b_ext, next_end
-
-            if (end - start) > best_len:
-                best_len = end - start
-                best = (m, b, start, end)
-
-    return best
-
 
 # ================= MAIN SCRIPT =================
 txt_files = glob.glob(os.path.join(INPUT_FOLDER, FILE_GLOB_PATTERN))

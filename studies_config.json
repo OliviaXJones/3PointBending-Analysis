@@ -1,13 +1,113 @@
 {
     "IFS+SHP099+Medigel 2026": {
-        "raw_data_root": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226",
-        "master_file": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemurMaster.xlsx",
-        "measurement_file": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226.xlsx",
-        "output_folder": "F:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\Grouped_Analysis_Tables",
+        "raw_data_root": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226",
+        "measurement_file": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226.xlsx",
+        "output_folder": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_CSVFiles",
+        "sex": "Male",
+        "age": "21 Weeks",
+        "bone": "Femur",
         "group_map": {
             "CV": "Control + Medigel",
             "PV": "IFS + Medigel",
             "PS": "IFS + SHP Medigel"
+        }
+    },
+    "Exercise+CIE Femur 2025": {
+        "raw_data_root": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_Femur_121225",
+        "measurement_file": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_Femur_121125.xlsx",
+        "output_folder": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_Femur_CSVFiles",
+        "sex": "Male",
+        "age": "16 Weeks",
+        "bone": "Femur",
+        "group_map": {
+            "EP": "Exercise + Pyrazole",
+            "EC": "Exercise + Control",
+            "CC": "Control + Control",
+            "CP": "Control + Pyrazole"
+        }
+    },
+    "Exercise+CIE Tibia 2025": {
+        "raw_data_root": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_RTibia_121525",
+        "measurement_file": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_Tibia_121125.xlsx",
+        "output_folder": "E:\\3-Point Bending\\Exercise+CIE 2025\\Exercise+CIE_Tibia_CSVFiles",
+        "sex": "Male",
+        "age": "16 Weeks",
+        "bone": "Tibia",
+        "group_map": {
+            "CC": "Control + Control",
+            "CP": "Control + Pyrazole",
+            "EC": "Exercise + Control",
+            "EP": "Exercise + Pyrazole"
+        }
+    },
+    "SHP099+Medigel Femur 2025": {
+        "raw_data_root": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099+Medigel_Femur_121125",
+        "measurement_file": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099_Medigel_Femur_121125.xlsx",
+        "output_folder": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099+Medigel_Femur_CSVFiles",
+        "sex": "Mixed",
+        "age": "21 Weeks",
+        "bone": "Femur",
+        "group_map": {
+            "MC": {
+                "group": "Medigel",
+                "sex": "Male"
+            },
+            "MS": {
+                "group": "SHP99 + Medigel",
+                "sex": "Male"
+            },
+            "FC": {
+                "group": "Medigel",
+                "sex": "Female"
+            },
+            "FS": {
+                "group": "SHP99 + Medigel",
+                "sex": "Female"
+            }
+        }
+    },
+    "SHP099+Medigel Humerus 2025": {
+        "raw_data_root": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099+Medigel_Humerus_111925",
+        "measurement_file": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099+Medigel_Humerus_111925.xlsx",
+        "output_folder": "E:\\3-Point Bending\\SHP99+Medigel 2025\\SHP099+Medigel_Humerus_CSVFiles",
+        "sex": "Mixed",
+        "age": "21 Weeks",
+        "bone": "Femur",
+        "group_map": {
+            "MC": {
+                "group": "Control",
+                "sex": "Male"
+            },
+            "MS": {
+                "group": "SHP99 + Medigel",
+                "sex": "Male"
+            },
+            "FC": {
+                "group": "Control",
+                "sex": "Female"
+            },
+            "FS": {
+                "group": "SHP99 + Medigel",
+                "sex": "Female"
+            }
+        }
+    },
+    "SHPvsZA_ZA+ZACtrl 2024": {
+        "raw_data_root": "E:\\3-Point Bending\\SHPvsZA_ZA+ZACtrl 2024\\SHPvsZA_ZA+ZACtrl_Femur+Tibia_020626",
+        "measurement_file": "E:\\3-Point Bending\\SHPvsZA_ZA+ZACtrl 2024\\SHPvsZA_ZA+ZACtrl_Femur+Tibia_020626.xlsx",
+        "output_folder": "E:\\3-Point Bending\\SHPvsZA_ZA+ZACtrl 2024",
+        "sex": "Mixed",
+        "age": "16 Weeks",
+        "bone": "Femur",
+        "group_map": {
+            "Z": {
+                "group": "ZA",
+                "sex": "Deduce from code"
+            },
+            "ZC": {
+                "group": "ZA Control",
+                "sex": "Deduce from code"
+            }
         }
     }
 }
