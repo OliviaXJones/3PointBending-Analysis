@@ -63,8 +63,6 @@ def generate_grouped_tables(df, base_dir, bone_target):
         return
 
     unique_ages = df["Age_Extracted"].dropna().unique()
-    folder_genotype = os.path.join(base_dir, f"{bone_target}_Analysis_By_Genotype")
-    os.makedirs(folder_genotype, exist_ok=True)
 
     active_metrics = [m for m in metrics if m in df.columns] or \
                      [m for m in fallback_metrics if m in df.columns]
@@ -88,8 +86,9 @@ def generate_grouped_tables(df, base_dir, bone_target):
                 existing_cols = [c for c in SORT_PRIORITY if c in table.columns]
                 table = table.reindex(columns=existing_cols)
                 clean_metric = metric.replace("_", " ").replace(".", "")
-                table.to_csv(os.path.join(folder_genotype,
-                                          f"{sex} {age}Wks {clean_metric}.csv"))
+                sex_geno_dir = os.path.join(base_dir, sex, f"{bone_target}_Analysis_By_Genotype")
+                os.makedirs(sex_geno_dir, exist_ok=True)
+                table.to_csv(os.path.join(sex_geno_dir, f"{age}Wks {clean_metric}.csv"))
 
 
 # ===========================================================
@@ -112,7 +111,7 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
         if sheet.lower() in ("summary", "notes", "calculations"):
             continue
 
-        if structure_type == "Split Genders (Male/Female)":
+        if structure_type == "Split Genders Male/Female":
             raw_df = pd.read_excel(master_path, sheet_name=sheet, header=None, skiprows=1)
             if raw_df.shape[1] < 17:
                 part = raw_df.iloc[:, 0:8].copy()

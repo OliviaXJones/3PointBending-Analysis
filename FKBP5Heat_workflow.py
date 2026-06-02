@@ -247,7 +247,7 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
             ".txt", "", regex=False).str.split('_').str[0].str.upper().str.strip()
 
     target_columns = [
-        1, 10] if structure_type == "Split Genders (Male/Female)" else [1]
+        1, 10] if structure_type == "Split Genders Male/Female" else [1]
 
     for sheet_name in wb.sheetnames:
         if sheet_name.lower() in ["summary", "notes", "calculations"]:
@@ -337,7 +337,12 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                                 7).value = mach_row.iloc[0]["Displacement_at_Failure_mm"]
 
     try:
-        wb.save(master_file)
+        import io
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        with open(master_file, "wb") as f:
+            f.write(buf.read())
         print(f"{bone_target} Master file synchronization complete.")
     except PermissionError:
         raise PermissionError(
@@ -376,13 +381,6 @@ def generate_grouped_tables(df, base_dir, bone_target):
     unique_ages = df['Age_Extracted'].dropna().unique()
     sort_priority = ['Wildtype', 'Mutant', 'Heterozygous']
 
-    folder_genotype = os.path.join(
-        base_dir, f"{bone_target}_Analysis_By_Genotype")
-    folder_lineage = os.path.join(
-        base_dir, f"{bone_target}_Analysis_By_Lineage")
-    os.makedirs(folder_genotype, exist_ok=True)
-    os.makedirs(folder_lineage, exist_ok=True)
-
     active_metrics = [m for m in metrics if m in df.columns]
     if not active_metrics:
         active_metrics = [m for m in fallback_metrics if m in df.columns]
@@ -399,6 +397,12 @@ def generate_grouped_tables(df, base_dir, bone_target):
                     continue
 
                 clean_metric = metric.replace("_", " ").replace(".", "")
+                csv_name = f"{age}Wks {clean_metric}.csv"
+
+                sex_geno_dir = os.path.join(base_dir, sex, f"{bone_target}_Analysis_By_Genotype")
+                sex_lin_dir  = os.path.join(base_dir, sex, f"{bone_target}_Analysis_By_Lineage")
+                os.makedirs(sex_geno_dir, exist_ok=True)
+                os.makedirs(sex_lin_dir, exist_ok=True)
 
                 gen_subset = base_subset[base_subset['Progeny_Group'].isin(
                     sort_priority)].copy()
@@ -407,11 +411,8 @@ def generate_grouped_tables(df, base_dir, bone_target):
                         index='ID_Num', columns='Progeny_Group', values=metric)
                     existing_gen_cols = [
                         c for c in sort_priority if c in table_genotype.columns]
-                    table_genotype = table_genotype.reindex(
-                        columns=existing_gen_cols)
-                    name_genotype = f"{sex} {age}Wks {clean_metric}.csv"
-                    table_genotype.to_csv(os.path.join(
-                        folder_genotype, name_genotype))
+                    table_genotype = table_genotype.reindex(columns=existing_gen_cols)
+                    table_genotype.to_csv(os.path.join(sex_geno_dir, csv_name))
 
                 table_lineage = base_subset.pivot_table(
                     index='ID_Num', columns='Progeny_Group', values=metric)
@@ -422,12 +423,8 @@ def generate_grouped_tables(df, base_dir, bone_target):
                             return (i, col_name)
                     return (99, col_name)
 
-                sorted_lineage_cols = sorted(
-                    table_lineage.columns, key=lineage_sort)
-                table_lineage = table_lineage[sorted_lineage_cols]
-                name_lineage = f"{sex} {age}Wks {clean_metric}.csv"
-                table_lineage.to_csv(os.path.join(
-                    folder_lineage, name_lineage))
+                table_lineage = table_lineage[sorted(table_lineage.columns, key=lineage_sort)]
+                table_lineage.to_csv(os.path.join(sex_lin_dir, csv_name))
 
 
 def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
@@ -441,7 +438,7 @@ def process_all_sheets(master_path, structure_type, csv_out_dir, bone_target):
         if sheet.lower() in ["summary", "notes", "calculations"]:
             continue
 
-        if structure_type == "Split Genders (Male/Female)":
+        if structure_type == "Split Genders Male/Female":
             raw_df = pd.read_excel(
                 master_path, sheet_name=sheet, header=None, skiprows=1)
 
@@ -545,16 +542,8 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
                 continue
 
             master_df = pd.DataFrame(all_data)
-            folder_top = os.path.join(base_output_dir, label_top)
-            folder_bottom = os.path.join(base_output_dir, label_bottom)
 
-            os.makedirs(folder_top, exist_ok=True)
-            os.makedirs(folder_bottom, exist_ok=True)
-
-            mapping = [('Top_Val', folder_top, label_top),
-                       ('Bottom_Val', folder_bottom, label_bottom)]
-
-            for data_key, target_folder, file_label in mapping:
+            for data_key, base_label in [('Top_Val', label_top), ('Bottom_Val', label_bottom)]:
                 for age in master_df['Age_Extracted'].unique():
                     for sex in ['Male', 'Female']:
                         subset = master_df[(master_df['Sex_Extracted'] == sex) &
@@ -569,11 +558,12 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
                             for i, gen in enumerate(sort_priority):
                                 if col_name.startswith(gen):
                                     return (i, col_name)
-                                return (99, col_name)
+                            return (99, col_name)
 
-                        sorted_cols = sorted(table.columns, key=lineage_sort)
-                        table = table[sorted_cols]
-                        file_name = f"{sex}_{age}Wks_{file_label}.csv"
+                        table = table[sorted(table.columns, key=lineage_sort)]
+                        target_folder = os.path.join(base_output_dir, sex, base_label)
+                        os.makedirs(target_folder, exist_ok=True)
+                        file_name = f"{age}Wks_{base_label}.csv"
                         table.to_csv(os.path.join(target_folder, file_name))
 
     except Exception as e:

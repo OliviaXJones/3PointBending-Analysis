@@ -17,9 +17,14 @@ import FKBP5Heat_workflow
 import FKBP5New_workflow
 import SingleStudy_workflow
 import OverlayGraphs_workflow
+import prism_export
 from OverlayGraphs_workflow import DEFAULT_COLORS as _OVERLAY_COLORS
 
-CONFIG_PATH = "studies_config.json"
+import sys as _sys
+_BASE_DIR = os.path.dirname(
+    _sys.executable if getattr(_sys, "frozen", False) else os.path.abspath(__file__)
+)
+CONFIG_PATH = os.path.join(_BASE_DIR, "studies_config.json")
 
 
 class StudyEditorDialog(QDialog):
@@ -252,6 +257,9 @@ class MainDashboard(QMainWindow):
         mgmt_layout.addWidget(btn_edit)
         mgmt_layout.addWidget(btn_remove)
         mgmt_layout.addStretch()
+        btn_prism = QPushButton("Export CSVs → Prism")
+        btn_prism.clicked.connect(self.export_csvs_to_prism)
+        mgmt_layout.addWidget(btn_prism)
         self.overlay_btn = QPushButton("Overlay Graphs")
         self.overlay_btn.setCheckable(True)
         self.overlay_btn.clicked.connect(self.toggle_overlay_mode)
@@ -393,6 +401,9 @@ class MainDashboard(QMainWindow):
         self.fkbp5_fallback.addItems(["Tibia", "Femur"])
         form.addRow(QLabel("Default Bone Fallback:"), self.fkbp5_fallback)
 
+        self.fkbp5_prism = QCheckBox("Export to GraphPad Prism (.pzfx) after run")
+        form.addRow(QLabel(""), self.fkbp5_prism)
+
         layout.addWidget(group)
         self.stack.addWidget(self.fkbp5_widget)
 
@@ -428,6 +439,9 @@ class MainDashboard(QMainWindow):
         self.fkbp5new_fallback = QComboBox()
         self.fkbp5new_fallback.addItems(["Tibia", "Femur"])
         form.addRow(QLabel("Default Bone Fallback:"), self.fkbp5new_fallback)
+
+        self.fkbp5new_prism = QCheckBox("Export to GraphPad Prism (.pzfx) after run")
+        form.addRow(QLabel(""), self.fkbp5new_prism)
 
         layout.addWidget(group)
         self.stack.addWidget(self.fkbp5new_widget)
@@ -498,6 +512,9 @@ class MainDashboard(QMainWindow):
         # Anatomical Diameters checkbox
         self.ss_anat_diam_checkbox = QCheckBox("Generate Anatomical Diameter Folders")
         form.addRow(QLabel(""), self.ss_anat_diam_checkbox)
+
+        self.ss_prism = QCheckBox("Export to GraphPad Prism (.pzfx) after run")
+        form.addRow(QLabel(""), self.ss_prism)
 
         layout.addWidget(group)
         self.stack.addWidget(self.single_study_widget)
@@ -608,6 +625,45 @@ class MainDashboard(QMainWindow):
 
         outer.addWidget(files_group)
         self.stack.addWidget(self.overlay_widget)
+
+    def export_csvs_to_prism(self):
+        study = self.study_selector.currentText()
+
+        if self.overlay_mode or study == "Overlay Graphs":
+            self.show_message_box("Not Applicable",
+                                  "Select a study or FKBP5 mode first, then export.",
+                                  is_error=True)
+            return
+
+        if study == "FKBP5 Heat":
+            csv_dir    = self.fkbp5_fields["csv_dir"].text().strip()
+            study_name = "FKBP5Heat"
+        elif study == "FKBP5 New":
+            csv_dir    = self.fkbp5new_fields["csv_dir"].text().strip()
+            study_name = "FKBP5New"
+        else:
+            csv_dir = self.ss_fields["csv_dir"].text().strip()
+            if self.ss_auto_csvfolder.isChecked():
+                csv_dir = os.path.join(csv_dir, f"{study}_CSVFiles")
+            study_name = study
+
+        if not csv_dir or not os.path.isdir(csv_dir):
+            self.show_message_box("Folder Not Found",
+                                  f"CSV Export Folder does not exist:\n{csv_dir}",
+                                  is_error=True)
+            return
+
+        created = prism_export.workflow_output_to_pzfx(csv_dir, study_name)
+
+        if created:
+            self.show_message_box(
+                "Prism Export Complete",
+                f"Created {len(created)} file(s):\n\n" + "\n".join(created))
+        else:
+            self.show_message_box(
+                "Nothing Exported",
+                f"No *_Analysis_By_Genotype subfolders with CSVs found in:\n{csv_dir}",
+                is_error=True)
 
     def _sync_overlay_scan_folder(self):
         """Keep the overlay scan folder in sync with the main study selector."""
@@ -808,9 +864,13 @@ class MainDashboard(QMainWindow):
                 }
                 success = FKBP5Heat_workflow.run_workflow(inputs)
                 if success:
-                    self.show_message_box(
-                        "Success",
-                        "FKBP5 Heat workflow completed and master files updated.")
+                    msg = "FKBP5 Heat workflow completed and master files updated."
+                    if self.fkbp5_prism.isChecked():
+                        created = prism_export.workflow_output_to_pzfx(
+                            inputs["csv_out_dir"], "FKBP5Heat")
+                        if created:
+                            msg += f"\n\nPrism files saved:\n" + "\n".join(created)
+                    self.show_message_box("Success", msg)
                 else:
                     self.show_message_box(
                         "Execution Incomplete",
@@ -828,9 +888,13 @@ class MainDashboard(QMainWindow):
                 }
                 success = FKBP5New_workflow.run_workflow(inputs)
                 if success:
-                    self.show_message_box(
-                        "Success",
-                        "FKBP5 New workflow completed and master files updated.")
+                    msg = "FKBP5 New workflow completed and master files updated."
+                    if self.fkbp5new_prism.isChecked():
+                        created = prism_export.workflow_output_to_pzfx(
+                            inputs["csv_out_dir"], "FKBP5New")
+                        if created:
+                            msg += f"\n\nPrism files saved:\n" + "\n".join(created)
+                    self.show_message_box("Success", msg)
                 else:
                     self.show_message_box(
                         "Execution Incomplete",
@@ -854,9 +918,17 @@ class MainDashboard(QMainWindow):
                 }
                 success = SingleStudy_workflow.run_workflow(inputs)
                 if success:
-                    self.show_message_box(
-                        "Success",
-                        f"Custom study pipeline executed successfully for: {current_study}")
+                    msg = f"Custom study pipeline executed successfully for: {current_study}"
+                    if self.ss_prism.isChecked():
+                        csv_dir = inputs["csv_out_dir"]
+                        if self.ss_auto_csvfolder.isChecked():
+                            csv_dir = os.path.join(
+                                csv_dir, f"{current_study}_CSVFiles")
+                        created = prism_export.workflow_output_to_pzfx(
+                            csv_dir, current_study)
+                        if created:
+                            msg += f"\n\nPrism files saved:\n" + "\n".join(created)
+                    self.show_message_box("Success", msg)
                 else:
                     self.show_message_box(
                         "Execution Incomplete",

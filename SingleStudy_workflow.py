@@ -365,7 +365,7 @@ def sync_data_to_master(analysis_excel_path, master_file, measurement_file, grou
 # ===========================================================
 
 
-def generate_segregated_csvs(master_path, export_dir, group_map):
+def generate_segregated_csvs(master_path, export_dir, group_map, cohort_sex="Male"):
     if master_path.endswith(".csv"):
         df = pd.read_csv(master_path)
     else:
@@ -473,9 +473,11 @@ def generate_segregated_csvs(master_path, export_dir, group_map):
             for metric_name in metric_mapping:
                 write_pivot(sex_df, "Group", metric_name, sex_dir, sex_groups)
     else:
+        sex_dir = os.path.join(export_dir, cohort_sex)
+        os.makedirs(sex_dir, exist_ok=True)
         expected_columns = list(group_map.values())
         for metric_name in metric_mapping:
-            write_pivot(df_parsed, "Group", metric_name, export_dir, expected_columns)
+            write_pivot(df_parsed, "Group", metric_name, sex_dir, expected_columns)
 
 
 # ===========================================================
@@ -540,11 +542,6 @@ def parse_anatomical_diameters_single_study(measurement_path, sheet_name, csv_ou
         return
 
     master_df = pd.DataFrame(rows)
-    folder_top = os.path.join(csv_out_dir, label_top)
-    folder_bottom = os.path.join(csv_out_dir, label_bottom)
-    os.makedirs(folder_top, exist_ok=True)
-    os.makedirs(folder_bottom, exist_ok=True)
-
     age_clean = age.replace(" ", "_")
 
     def write_anat_pivot(df_sub, col_key, data_key, target_folder, label, file_prefix, expected_cols):
@@ -565,42 +562,28 @@ def parse_anatomical_diameters_single_study(measurement_path, sheet_name, csv_ou
         has_deduced = any(
             isinstance(v, dict) and v.get('sex') == _DEDUCE_SEX for v in group_map.values())
 
-        if has_deduced:
-            combined_cols = list(dict.fromkeys(master_df["Group_Sex"].dropna()))
-        else:
-            combined_cols = list(dict.fromkeys(
-                f"{v.get('group', '')}_{v.get('sex', '')}" if isinstance(v, dict) else v
-                for v in group_map.values()
-            ))
-
-        for data_key, target_folder, label in [
-            ('Top_Val', folder_top, label_top),
-            ('Bottom_Val', folder_bottom, label_bottom),
-        ]:
-            write_anat_pivot(master_df, 'Group_Sex', data_key, target_folder, label,
-                             f"Mixed_{age_clean}", combined_cols)
-            for sex_label in ['Male', 'Female']:
-                sex_sub = os.path.join(target_folder, sex_label)
-                os.makedirs(sex_sub, exist_ok=True)
-                sex_df = master_df[master_df['Sex'] == sex_label].copy()
-                if sex_df.empty:
-                    continue
-                if has_deduced:
-                    sex_groups = list(dict.fromkeys(sex_df["Group"].dropna()))
-                else:
-                    sex_groups = list(dict.fromkeys(
-                        v.get('group', '') for v in group_map.values()
-                        if isinstance(v, dict) and v.get('sex') == sex_label
-                    ))
-                write_anat_pivot(sex_df, 'Group', data_key, sex_sub, label,
+        for sex_label in ['Male', 'Female']:
+            sex_df = master_df[master_df['Sex'] == sex_label].copy()
+            if sex_df.empty:
+                continue
+            if has_deduced:
+                sex_groups = list(dict.fromkeys(sex_df["Group"].dropna()))
+            else:
+                sex_groups = list(dict.fromkeys(
+                    v.get('group', '') for v in group_map.values()
+                    if isinstance(v, dict) and v.get('sex') == sex_label
+                ))
+            for data_key, base_label in [('Top_Val', label_top), ('Bottom_Val', label_bottom)]:
+                sex_folder = os.path.join(csv_out_dir, sex_label, base_label)
+                os.makedirs(sex_folder, exist_ok=True)
+                write_anat_pivot(sex_df, 'Group', data_key, sex_folder, base_label,
                                  f"{sex_label}_{age_clean}", sex_groups)
     else:
         expected_groups = list(group_map.values())
-        for data_key, target_folder, label in [
-            ('Top_Val', folder_top, label_top),
-            ('Bottom_Val', folder_bottom, label_bottom),
-        ]:
-            write_anat_pivot(master_df, 'Group', data_key, target_folder, label,
+        for data_key, base_label in [('Top_Val', label_top), ('Bottom_Val', label_bottom)]:
+            sex_folder = os.path.join(csv_out_dir, sex, base_label)
+            os.makedirs(sex_folder, exist_ok=True)
+            write_anat_pivot(master_df, 'Group', data_key, sex_folder, base_label,
                              f"{sex}_{age_clean}", expected_groups)
 
 
@@ -670,7 +653,7 @@ def execute_single_study_pipeline(data_folder, master_path, measurement_path, cs
             print(f"Failed to generate compiled master copy: {e}")
 
         try:
-            generate_segregated_csvs(master_path, csv_out_dir, group_map)
+            generate_segregated_csvs(master_path, csv_out_dir, group_map, cohort_sex=sex)
         except Exception as e:
             print(f"Error compiling side-by-side metrics: {e}")
 
