@@ -19,6 +19,9 @@ Tibia_Analysis_By_Lineage/
 Tibia_Bottom_By_Genotype/
 Tibia_Top_By_Genotype/
 
+# Ignore local launcher scripts
+*.bat
+
 # Ignore data files
 *.csv
 *.prism
