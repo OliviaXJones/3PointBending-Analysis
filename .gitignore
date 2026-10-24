@@ -25,7 +25,6 @@ Tibia_Top_By_Genotype/
 # PyInstaller build output
 build/
 dist/
-*.spec
 
 # Ignore data files
 *.csv

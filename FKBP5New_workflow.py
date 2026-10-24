@@ -31,11 +31,11 @@ from FKBP5Heat_workflow import (
 # ===========================================================
 # DEFAULT CONFIGURATION
 # ===========================================================
-DEFAULT_RAW_DATA_ROOT    = r"F:\3-Point Bending\FKBP5 New 2026\FKBP5New_Tibia_MMDDYY"
-DEFAULT_TIBIA_MASTER_FILE = r"F:\3-Point Bending\FKBP5 New 2026\FKBP5New_3-PointBendingTibiaMaster.xlsx"
-DEFAULT_FEMUR_MASTER_FILE = r"F:\3-Point Bending\FKBP5 New 2026\FKBP5New_3-PointBendingFemurMaster.xlsx"
-DEFAULT_MEASUREMENT_FILE  = r"F:\3-Point Bending\FKBP5 New 2026\FKBP5New_Tibia+Femur_MMDDYY.xlsx"
-DEFAULT_CSV_OUTPUT_DIR    = r"F:\3-Point Bending\FKBP5 New 2026\FKBP5New_CSVFiles"
+DEFAULT_RAW_DATA_ROOT    = r"D:\3-PB Files\FKBP5 New 2026\Fkbp5 New RawDataFiles"
+DEFAULT_TIBIA_MASTER_FILE = r"D:\3-PB Files\FKBP5 New 2026\FKBP5New_3-PointBendingTibiaMaster.xlsx"
+DEFAULT_FEMUR_MASTER_FILE = r"D:\3-PB Files\FKBP5 New 2026\FKBP5New_3-PointBendingFemurMaster.xlsx"
+DEFAULT_MEASUREMENT_FILE  = r"D:\3-PB Files\FKBP5 New 2026\FKBP5NEW 2026 Tibia.xlsx"
+DEFAULT_CSV_OUTPUT_DIR    = r"D:\3-PB Files\FKBP5 New 2026\FKBP5NEW_CSVFiles"
 
 # Genotype code → display name (used for column ordering in output CSVs)
 GENOTYPE_MAP  = {"W": "Wildtype", "Z": "Heterozygous", "X": "Mutant"}

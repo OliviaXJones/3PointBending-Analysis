@@ -1,3 +1,4 @@
+from bending_core import read_bending_txt, dominant_linear_region, TOE_LOAD_FRACTION, LINEAR_WINDOW_POINTS, MIN_R2
 import os
 import sys
 import glob
@@ -12,7 +13,6 @@ import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
 
-from bending_core import read_bending_txt, dominant_linear_region, TOE_LOAD_FRACTION, LINEAR_WINDOW_POINTS, MIN_R2
 
 # ===========================================================
 # DEFAULT CONFIGURATION & CONSTANTS
@@ -257,15 +257,19 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
         df_meas = df_meas_all.get(sheet_name, pd.DataFrame())
 
         print(f"\n[DEBUG] Processing sheet: {sheet_name}")
-        print(f"[DEBUG] Measurement data found: {not df_meas.empty}, rows: {len(df_meas)}")
+        print(
+            f"[DEBUG] Measurement data found: {not df_meas.empty}, rows: {len(df_meas)}")
 
         if not df_meas.empty:
             df_meas["Base_Code"] = df_meas.iloc[:, 0].astype(
                 str).str.split('_').str[0].str.upper().str.strip()
-            print(f"[DEBUG] Sample Base_Codes: {df_meas['Base_Code'].head(3).tolist()}")
+            print(
+                f"[DEBUG] Sample Base_Codes: {df_meas['Base_Code'].head(3).tolist()}")
             if df_meas.iloc[:, 0].astype(str).str.contains("M.4", case=False, na=False).any():
-                m4_codes = df_meas[df_meas.iloc[:, 0].astype(str).str.contains("M.4", case=False, na=False)]
-                print(f"[DEBUG] Found {len(m4_codes)} M.4 rows: raw codes = {m4_codes.iloc[:, 0].tolist()[:3]}, base codes = {m4_codes['Base_Code'].tolist()[:3]}")
+                m4_codes = df_meas[df_meas.iloc[:, 0].astype(
+                    str).str.contains("M.4", case=False, na=False)]
+                print(
+                    f"[DEBUG] Found {len(m4_codes)} M.4 rows: raw codes = {m4_codes.iloc[:, 0].tolist()[:3]}, base codes = {m4_codes['Base_Code'].tolist()[:3]}")
 
         for row in range(2, ws.max_row + 1):
             if row <= 12:  # Only for first 10 data rows
@@ -289,7 +293,8 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                         if not potential_meas.empty:
                             first_code = str(potential_meas.iloc[0, 0])
                             has_femur = "FEMUR" in first_code.upper()
-                            print(f"[DEBUG] Femur check for {base_master_code}: code='{first_code}', has_FEMUR={has_femur}")
+                            print(
+                                f"[DEBUG] Femur check for {base_master_code}: code='{first_code}', has_FEMUR={has_femur}")
                         m_row = potential_meas[potential_meas.iloc[:, 0].astype(
                             str).str.upper().str.contains("FEMUR")]
                     else:
@@ -305,9 +310,9 @@ def sync_data_to_master(all_analysis_files, master_file, measurement_file, bone_
                         ws.cell(row=row, column=start_col +
                                 1).value = m_row.iloc[0, 1]
                         ws.cell(row=row, column=start_col +
-                                2).value = m_row.iloc[0, 2]
+                                2).value = m_row.iloc[0, 8]
                         ws.cell(row=row, column=start_col +
-                                3).value = m_row.iloc[0, 3]
+                                3).value = m_row.iloc[0, 12]
 
                 if not df_mach_all.empty:
                     mach_mask = (df_mach_all["Base_Code"] == base_master_code)
@@ -399,8 +404,10 @@ def generate_grouped_tables(df, base_dir, bone_target):
                 clean_metric = metric.replace("_", " ").replace(".", "")
                 csv_name = f"{age}Wks {clean_metric}.csv"
 
-                sex_geno_dir = os.path.join(base_dir, sex, f"{bone_target}_Analysis_By_Genotype")
-                sex_lin_dir  = os.path.join(base_dir, sex, f"{bone_target}_Analysis_By_Lineage")
+                sex_geno_dir = os.path.join(
+                    base_dir, sex, f"{bone_target}_Analysis_By_Genotype")
+                sex_lin_dir = os.path.join(
+                    base_dir, sex, f"{bone_target}_Analysis_By_Lineage")
                 os.makedirs(sex_geno_dir, exist_ok=True)
                 os.makedirs(sex_lin_dir, exist_ok=True)
 
@@ -411,7 +418,8 @@ def generate_grouped_tables(df, base_dir, bone_target):
                         index='ID_Num', columns='Progeny_Group', values=metric)
                     existing_gen_cols = [
                         c for c in sort_priority if c in table_genotype.columns]
-                    table_genotype = table_genotype.reindex(columns=existing_gen_cols)
+                    table_genotype = table_genotype.reindex(
+                        columns=existing_gen_cols)
                     table_genotype.to_csv(os.path.join(sex_geno_dir, csv_name))
 
                 table_lineage = base_subset.pivot_table(
@@ -423,7 +431,8 @@ def generate_grouped_tables(df, base_dir, bone_target):
                             return (i, col_name)
                     return (99, col_name)
 
-                table_lineage = table_lineage[sorted(table_lineage.columns, key=lineage_sort)]
+                table_lineage = table_lineage[sorted(
+                    table_lineage.columns, key=lineage_sort)]
                 table_lineage.to_csv(os.path.join(sex_lin_dir, csv_name))
 
 
@@ -561,7 +570,8 @@ def parse_anatomical_diameters(measurement_file, base_output_dir):
                             return (99, col_name)
 
                         table = table[sorted(table.columns, key=lineage_sort)]
-                        target_folder = os.path.join(base_output_dir, sex, base_label)
+                        target_folder = os.path.join(
+                            base_output_dir, sex, base_label)
                         os.makedirs(target_folder, exist_ok=True)
                         file_name = f"{age}Wks_{base_label}.csv"
                         table.to_csv(os.path.join(target_folder, file_name))

@@ -2,7 +2,7 @@
     "IFS+SHP099+Medigel 2026": {
         "raw_data_root": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226",
         "measurement_file": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_LFemur_051226.xlsx",
-        "output_folder": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026\\IFS+SHP099+Medigel_CSVFiles",
+        "output_folder": "E:\\3-Point Bending\\IFS+SHP99+Medigel 2026",
         "sex": "Male",
         "age": "21 Weeks",
         "bone": "Femur",
